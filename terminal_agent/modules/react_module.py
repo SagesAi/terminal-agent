@@ -15,13 +15,13 @@ from rich.markdown import Markdown
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
 from terminal_agent.react.agent import create_react_agent, ReActAgent, ToolName
+from terminal_agent.utils.logging_config import get_logger
 
 # Initialize Rich console
 console = Console()
 
-# Setup logging
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# 获取日志记录器
+logger = get_logger(__name__)
 
 
 class ReActModule:

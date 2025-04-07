@@ -54,24 +54,32 @@ def terminate_current_command() -> bool:
         os.killpg(pgid, signal.SIGTERM)
         
         # 等待进程结束
-        for _ in range(5):  # 最多等待5秒
-            if current_process["process"].poll() is not None:
-                break
-            time.sleep(1)
-        
-        # 如果进程仍在运行，发送SIGKILL信号
-        if current_process["process"].poll() is None:
-            os.killpg(pgid, signal.SIGKILL)
+        process = current_process["process"]  # 保存一个引用，防止在循环中被设置为None
+        if process is not None:
+            for _ in range(5):  # 最多等待5秒
+                if process.poll() is not None:
+                    break
+                time.sleep(1)
+            
+            # 如果进程仍在运行，发送SIGKILL信号
+            if process.poll() is None:
+                os.killpg(pgid, signal.SIGKILL)
         
         console.print(f"[bold red]命令已终止: {current_process['command']}[/bold red]")
         console.print("[bold red]已停止所有操作[/bold red]")
+        
+        # 重置进程状态
         current_process["running"] = False
         current_process["process"] = None
         current_process["command"] = ""
         return True
-    
     except Exception as e:
         console.print(f"[bold red]终止命令时出错: {str(e)}[/bold red]")
+        
+        # 即使出错，也重置进程状态，防止状态不一致
+        current_process["running"] = False
+        current_process["process"] = None
+        current_process["command"] = ""
         return False
 
 
@@ -97,7 +105,10 @@ def should_stop_operations() -> bool:
     return stop_all_operations
 
 
-def execute_command(command: str, module_name: str = "命令", check_success: bool = False, need_confirmation: bool = True, auto_confirm: bool = False, show_output: bool = True) -> Tuple[int, str, bool]:
+def execute_command(command: str, module_name: str = "Command", check_success: bool = False, 
+                  need_confirmation: bool = True, auto_confirm: bool = False, 
+                  show_output: bool = True, env: Optional[Dict[str, str]] = None,
+                  timeout: Optional[int] = None) -> Tuple[int, str, bool]:
     """
     执行命令并返回结果
     
@@ -108,6 +119,8 @@ def execute_command(command: str, module_name: str = "命令", check_success: bo
         need_confirmation: 是否需要用户确认
         auto_confirm: 是否自动确认（用于自动化测试）
         show_output: 是否显示命令输出
+        env: 环境变量字典，用于设置命令执行环境
+        timeout: 命令执行超时时间（秒），如果为None则不设置超时
         
     Returns:
         Tuple[int, str, bool]: 返回代码，输出，是否用户主动取消
@@ -127,7 +140,14 @@ def execute_command(command: str, module_name: str = "命令", check_success: bo
             return 1, "Command execution skipped by user", True
     
     # 执行命令并显示进度
-    return_code, output, user_stopped = execute_command_single(command, show_output, need_confirmation=False, auto_confirm=auto_confirm)
+    return_code, output, user_stopped = execute_command_single(
+        command, 
+        show_output, 
+        need_confirmation=False, 
+        auto_confirm=auto_confirm,
+        timeout=timeout,
+        env=env  # 传递环境变量
+    )
     
     # 初始化建议的修复命令列表
     suggested_commands = []
@@ -193,7 +213,7 @@ def execute_command(command: str, module_name: str = "命令", check_success: bo
     return return_code, output, user_stopped
 
 
-def execute_command_single(command: str, show_output: bool, need_confirmation: bool = False, auto_confirm: bool = False) -> Tuple[int, str, bool]:
+def execute_command_single(command: str, show_output: bool, need_confirmation: bool = False, auto_confirm: bool = False, timeout: Optional[int] = None, env: Optional[Dict[str, str]] = None) -> Tuple[int, str, bool]:
     """
     执行命令并返回结果
     
@@ -202,6 +222,8 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
         show_output: 是否显示命令输出
         need_confirmation: 是否需要用户确认（如果在execute_command中已经确认过，则不需要再次确认）
         auto_confirm: 是否自动确认（用于自动化测试）
+        timeout: 命令执行超时时间（秒），如果为None则不设置超时
+        env: 环境变量字典，用于设置命令执行环境
         
     Returns:
         Tuple[int, str, bool]: 返回代码，输出，是否用户主动取消
@@ -254,7 +276,8 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                     text=True,
                     bufsize=1,  # 行缓冲
                     universal_newlines=True,
-                    preexec_fn=os.setsid  # 在新的进程组中运行命令
+                    preexec_fn=os.setsid,  # 在新的进程组中运行命令
+                    env=env  # 传递环境变量
                 )
                 
                 # 更新全局变量，跟踪当前进程
@@ -280,8 +303,30 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                 stdout_thread.start()
                 stderr_thread.start()
                 
+                # 计算超时时间点
+                timeout_time = time.time() + timeout if timeout else None
+                
                 # 等待进程完成或者被用户中断
                 while process.poll() is None:
+                    # 检查是否超时
+                    if timeout_time and time.time() > timeout_time:
+                        try:
+                            # 终止整个进程组
+                            pgid = os.getpgid(process.pid)
+                            os.killpg(pgid, signal.SIGTERM)
+                            
+                            # 等待进程终止
+                            try:
+                                process.wait(timeout=5)
+                            except subprocess.TimeoutExpired:
+                                # 如果超时，发送SIGKILL
+                                os.killpg(pgid, signal.SIGKILL)
+                            
+                            output_queue.put("\nCommand execution timed out after {} seconds".format(timeout))
+                            break
+                        except Exception as e:
+                            output_queue.put(f"\nError terminating process: {str(e)}")
+                    
                     if stop_event.is_set():
                         # 用户中断了命令
                         try:
@@ -299,32 +344,27 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                             output_queue.put(f"\nError terminating process: {str(e)}")
                         
                         output_queue.put("\nCommand execution interrupted by user")
-                        
-                        # 重置全局变量
-                        current_process["process"] = None
-                        current_process["command"] = ""
-                        current_process["running"] = False
-                        
-                        return 1
+                        break
+                    
+                    # 短暂休眠，避免CPU占用过高
                     time.sleep(0.1)
                 
-                # 等待输出线程完成
-                stdout_thread.join(timeout=1)
-                stderr_thread.join(timeout=1)
+                # 等待读取线程完成
+                stdout_thread.join(1)
+                stderr_thread.join(1)
                 
-                # 命令执行完成，重置全局变量
-                current_process["process"] = None
-                current_process["command"] = ""
-                current_process["running"] = False
-                
-                # 返回进程的返回代码
+                # 获取进程返回代码
                 return_code = process.returncode
-                output_queue.put(return_code)
-                return return_code
+                
+                # 更新全局变量，表示进程已完成
+                current_process["running"] = False
+                current_process["process"] = None
+                
+                # 将返回代码放入队列
+                output_queue.put(f"\nReturn code: {return_code}")
             except Exception as e:
-                # 如果发生异常，将其放入队列
-                output_queue.put(f"Error executing command: {str(e)}")
-                return 1
+                output_queue.put(f"\nError executing command: {str(e)}")
+                output_queue.put("\nReturn code: 1")  # 设置一个非零的返回代码表示错误
         
         # 创建并启动执行线程
         execution_thread = threading.Thread(target=execute_in_thread)
@@ -594,7 +634,7 @@ def execute_command_with_fix(command: str,
                            analyzer: Optional[Any] = None,
                            conversation_history: Optional[List[Dict]] = None,
                            user_goal: Optional[str] = None,
-                           module_name: str = "命令") -> Tuple[int, str, bool]:
+                           module_name: str = "Command") -> Tuple[int, str, bool]:
     """
     执行命令并在失败时提供修复选项
     
@@ -646,80 +686,24 @@ def execute_command_with_fix(command: str,
             
             # 如果修复命令成功，返回修复结果
             if fix_return_code == 0:
-                return fix_return_code, fix_output, not fix_user_stopped
-            
-            # 如果修复命令失败，返回原始结果
-            return return_code, output, True
-    
-    # 如果命令执行成功，直接返回结果
-    return return_code, output, True
-
-
-def execute_commands_batch(commands: List[str], need_confirmation: bool = True, auto_confirm: bool = False) -> Tuple[List[Dict[str, Any]], bool]:
-    """
-    批量执行多个命令，并返回每个命令的执行结果
-    
-    Args:
-        commands: 要执行的命令列表
-        need_confirmation: 是否需要用户确认
-        auto_confirm: 是否自动确认（用于自动化测试）
-        
-    Returns:
-        Tuple[List[Dict[str, Any]], bool]: 命令执行结果列表，是否用户主动取消
-    """
-    results = []
-    
-    # 预处理命令列表，确保每个命令都是单独的
-    processed_commands = []
-    for cmd in commands:
-        # 分割可能包含多个命令的字符串（按换行符分割）
-        cmd_lines = [c.strip() for c in cmd.split('\n') if c.strip()]
-        processed_commands.extend(cmd_lines)
-    
-    # 显示要执行的命令列表
-    console.print("\n[bold cyan]即将执行以下命令:[/bold cyan]")
-    for i, cmd in enumerate(processed_commands):
-        console.print(f"{i+1}. {cmd}")
-    
-    # 如果需要确认，询问用户是否要执行
-    if need_confirmation and not auto_confirm:
-        user_choice = input("执行这些命令? (y/n): ")
-        
-        # 如果用户选择不执行，返回空结果
-        if user_choice.lower() not in ["y", "yes"]:
-            return [], True
-    
-    # 执行每个命令
-    for i, cmd in enumerate(processed_commands):
-        # 检查是否应该停止所有操作
-        if should_stop_operations():
-            console.print("[bold red]已停止执行剩余命令[/bold red]")
-            return results, True
-            
-        console.print(f"\n[bold cyan]执行命令 ({i+1}/{len(processed_commands)}): {cmd}[/bold cyan]")
-        
-        # 执行命令
-        return_code, output, user_stopped = execute_command_single(cmd, show_output=True, need_confirmation=False, auto_confirm=auto_confirm)
-        
-        # 收集结果
-        results.append({
-            "command": cmd,
-            "output": output,
-            "return_code": return_code
-        })
-        
-        # 如果用户主动放弃命令，停止执行后续命令
-        if user_stopped:
-            return results, True
-            
-        # 如果命令执行失败且不是最后一个命令，询问用户是否继续执行
-        if return_code != 0 and i < len(processed_commands) - 1 and not auto_confirm:
-            continue_execution = input("命令执行失败，是否继续执行剩余命令? (y/n): ")
-            if continue_execution.lower() not in ["y", "yes"]:
-                console.print("[yellow]已停止执行剩余命令[/yellow]")
-                return results, True
-    
-    return results, False
+                console.print("[bold green]修复命令执行成功[/bold green]")
+                
+                # 询问是否重试原命令
+                retry = input("修复可能已解决问题，是否重试原命令? (y/n): ")
+                if retry.lower() in ["y", "yes"]:
+                    console.print(f"[bold cyan]重试命令: {command}[/bold cyan]")
+                    return_code, output, user_stopped = execute_command(command, module_name=module_name, need_confirmation=True)
+                    
+                    # 如果重试成功，更新分析结果
+                    if return_code == 0:
+                        console.print("[bold green]命令执行成功[/bold green]")
+                        success, error_message = analyze_command_success(command, output, return_code)
+                        display_analysis(error_message, [], command, output, return_code, auto_mode=False)
+            else:
+                console.print("[bold red]修复命令执行失败[/bold red]")
+    else:
+        # 命令成功执行，直接返回结果
+        return return_code, output, True
 
 
 def get_fix_suggestion(command: str, output: str, return_code: int, 
@@ -816,3 +800,70 @@ def get_fix_suggestion(command: str, output: str, return_code: int,
             console.print(f"{i+1}. {cmd}")
     
     return None
+
+
+def execute_commands_batch(commands: List[str], need_confirmation: bool = True, auto_confirm: bool = False) -> Tuple[List[Dict[str, Any]], bool]:
+    """
+    批量执行多个命令，并返回每个命令的执行结果
+    
+    Args:
+        commands: 要执行的命令列表
+        need_confirmation: 是否需要用户确认
+        auto_confirm: 是否自动确认（用于自动化测试）
+        
+    Returns:
+        Tuple[List[Dict[str, Any]], bool]: 命令执行结果列表，是否用户主动取消
+    """
+    results = []
+    
+    # 预处理命令列表，确保每个命令都是单独的
+    processed_commands = []
+    for cmd in commands:
+        # 分割可能包含多个命令的字符串（按换行符分割）
+        cmd_lines = [c.strip() for c in cmd.split('\n') if c.strip()]
+        processed_commands.extend(cmd_lines)
+    
+    # 显示要执行的命令列表
+    console.print("\n[bold cyan]即将执行以下命令:[/bold cyan]")
+    for i, cmd in enumerate(processed_commands):
+        console.print(f"{i+1}. {cmd}")
+    
+    # 如果需要确认，询问用户是否要执行
+    if need_confirmation and not auto_confirm:
+        user_choice = input("执行这些命令? (y/n): ")
+        
+        # 如果用户选择不执行，返回空结果
+        if user_choice.lower() not in ["y", "yes"]:
+            return [], True
+    
+    # 执行每个命令
+    for i, cmd in enumerate(processed_commands):
+        # 检查是否应该停止所有操作
+        if should_stop_operations():
+            console.print("[bold red]已停止执行剩余命令[/bold red]")
+            return results, True
+            
+        console.print(f"\n[bold cyan]执行命令 ({i+1}/{len(processed_commands)}): {cmd}[/bold cyan]")
+        
+        # 执行命令
+        return_code, output, user_stopped = execute_command_single(cmd, show_output=True, need_confirmation=False, auto_confirm=auto_confirm)
+        
+        # 收集结果
+        results.append({
+            "command": cmd,
+            "output": output,
+            "return_code": return_code
+        })
+        
+        # 如果用户主动放弃命令，停止执行后续命令
+        if user_stopped:
+            return results, True
+            
+        # 如果命令执行失败且不是最后一个命令，询问用户是否继续执行
+        if return_code != 0 and i < len(processed_commands) - 1 and not auto_confirm:
+            continue_execution = input("命令执行失败，是否继续执行剩余命令? (y/n): ")
+            if continue_execution.lower() not in ["y", "yes"]:
+                console.print("[yellow]已停止执行剩余命令[/yellow]")
+                return results, True
+    
+    return results, False

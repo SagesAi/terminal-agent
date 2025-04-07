@@ -20,20 +20,20 @@ from pydantic import BaseModel, Field
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
+from terminal_agent.utils.logging_config import get_logger
 
 # Initialize Rich console
 console = Console()
 
-# Setup logging
-logging.basicConfig(level=logging.WARNING, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# 获取日志记录器
+logger = get_logger(__name__)
 
 # Type alias for observations
 Observation = Union[str, Exception]
 
 # Default template path in the package
-PROMPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "react_prompt.txt")
-DEFAULT_MAX_ITERATIONS = 5
+PROMPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "react_prompt1.txt")
+DEFAULT_MAX_ITERATIONS = 15
 
 
 class ToolName(Enum):
@@ -154,20 +154,19 @@ class ReActAgent:
 
     def _create_default_template(self, template_path: str) -> None:
         """
-        Creates the default prompt template file.
-
+        Creates a default template file if one doesn't exist.
+        
         Args:
             template_path (str): Path where the template should be created.
         """
-        os.makedirs(os.path.dirname(template_path), exist_ok=True)
+        logger.info("Creating default template")
         
-        default_template = """You are an advanced ReAct (Reasoning and Acting) agent integrated within Terminal Agent, a powerful Linux terminal assistant. Your primary purpose is to solve complex tasks through systematic reasoning and action.
+        # Default template content
+        default_template = """You are a ReAct (Reasoning and Acting) agent tasked with answering the following query:
 
 Query: {query}
 
-## CONTEXT
-
-You are operating on a system with the following specifications:
+Current system information:
 - OS: {os}
 - Distribution: {distribution}
 - Version: {version}
@@ -176,84 +175,63 @@ You are operating on a system with the following specifications:
 Previous reasoning steps and observations: 
 {history}
 
-## AVAILABLE TOOLS
+Available tools: {tools}
 
-{tools}
+Use the following format:
 
-## YOUR CAPABILITIES
+Thought: you should always think about what to do
+Action: the action to take, should be one of the available tools
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
 
-As a ReAct agent within Terminal Agent, you excel at:
-1. System diagnostics - Analyzing and troubleshooting system issues
-2. Command translation - Converting natural language to precise terminal commands
-3. Software installation - Managing software packages and dependencies
-4. Multi-step problem solving - Breaking down complex tasks into logical steps
-
-## REASONING FRAMEWORK
-
-For each step in your problem-solving process:
-
-1. **THINK**: Carefully analyze the current situation
-   - What information do I have?
-   - What am I trying to achieve?
-   - What are the potential approaches?
-   - What are the risks or considerations?
-
-2. **ACT**: Choose the appropriate tool based on your reasoning
-   - Select the most efficient tool for the current step
-   - Formulate precise inputs for the tool
-   - Consider security implications of your actions
-
-3. **OBSERVE**: Analyze the results of your action
-   - Did the action produce the expected outcome?
-   - What new information did I gain?
-   - What should I do next based on this observation?
-
-## TOOL USAGE GUIDELINES
-
-- **Shell Tool**: Use for simple commands and operations that can be done with a single command.
-- **Script Tool**: Use when a task requires multiple steps, complex logic, or would benefit from a reusable solution.
-  * The script tool accepts JSON input with these fields:
-    * "action": "create", "execute", or "create_and_execute"
-    * "filename": The name of the script file
-    * "content": The script content (for creation)
-    * "interpreter": Optional interpreter (e.g., "python", "bash", "node")
-  * Consider writing scripts for tasks that:
-    * Require loops, conditionals, or complex data processing
-    * Need to be executed multiple times or saved for future use
-    * Would be clearer or more efficient as a script than as a series of shell commands
-
-## RESPONSE FORMAT
-
-Respond in the following JSON format:
+When responding, output a JSON object with the following structure:
 
 If you need to use a tool:
 {{
-    "thought": "Your detailed reasoning about the current situation and what to do next. Be thorough and consider multiple angles. Explain your thought process step by step.",
+    "thought": "Your detailed step-by-step reasoning about what to do next",
     "action": {{
-        "name": "Tool name ({tool_names})",
-        "reason": "Detailed explanation of why this specific tool is the best choice for the current step",
-        "input": "Precise and well-formatted input for the tool that will produce the most useful results"
+        "name": "Tool name from the available tools list",
+        "input": "Specific input for the tool"
     }}
 }}
 
-If you have enough information to provide a final answer:
+If you have enough information to answer the query:
 {{
-    "thought": "Your comprehensive reasoning process that led to this conclusion. Summarize what you learned through your investigation.",
-    "answer": "Your detailed, accurate, and helpful answer to the query. Include relevant context, explanations, and when appropriate, next steps or recommendations."
+    "thought": "I now know the final answer. Here is my reasoning process...",
+    "final_answer": "Your comprehensive answer to the original query"
 }}
 
-## IMPORTANT GUIDELINES
+Tool Usage Guidelines:
+1. 'shell' tool: Use for simple commands that can be executed in a single step.
+2. 'script' tool: Preferred for complex tasks requiring multiple steps or logic. Use for:
+   - Data processing and transformation
+   - System maintenance and automation
+   - Problem diagnosis and troubleshooting
+   - Tasks that might be repeated in the future
 
-- **Safety First**: Always prioritize system safety. Avoid potentially harmful commands.
-- **Progressive Information Gathering**: Start with information-gathering commands before making system changes.
-- **Command Precision**: When using shell commands, be precise and specific.
-- **Error Handling**: If a tool returns an error, analyze the cause and adapt your approach.
-- **Context Awareness**: Consider the full context of previous observations.
-- **Efficiency**: Choose the most direct path to solve the problem.
-- **Transparency**: Clearly explain your reasoning at each step.
-- **Completeness**: Ensure your final answer fully addresses the original query.
+The 'script' tool accepts:
+- "action": "create", "execute", or "create_and_execute"
+- "filename": Script filename
+- "content": Script content
+- "interpreter": Optional (e.g., "python3", "bash", "node")
+- "args": Optional arguments list
+- "env_vars": Optional environment variables
+- "timeout": Optional execution time limit in seconds
 
-Remember that you are helping a user who may not be a technical expert. Provide explanations that are clear, educational, and actionable.
+Error Handling Strategy:
+- Analyze error messages carefully
+- Identify root causes (dependencies, permissions, syntax)
+- Fix specific errors and retry
+- Try alternative approaches if multiple attempts fail
+
+Remember:
+- Think step-by-step and be thorough in your reasoning
+- Use tools strategically to gather necessary information
+- Base your reasoning on actual observations
+- Provide a final answer only when confident
 """
         
         with open(template_path, 'w', encoding='utf-8') as f:
@@ -307,31 +285,39 @@ Remember that you are helping a user who may not be a technical expert. Provide 
             logger.warning("Reached maximum iterations. Stopping.")
             self.trace("assistant", "I'm sorry, but I couldn't find a satisfactory answer within the allowed number of iterations. Here's what I know so far: " + self.get_history())
             return
-
+        
         # Check if operations should be stopped
         if should_stop_operations():
             logger.warning("Operations stopped by user.")
             self.trace("system", "Operations stopped by user.")
             return
-
+        
         # Format the prompt with the current context
+        
         prompt = self.template.format(
             query=self.query,
             history=self.get_history(),
             tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
-            tool_names=', '.join([str(tool.name) for tool in self.tools.values()]),
             **self.system_info
         )
-
-        # Get the LLM's response using the simpler method
-        response = self.llm_client.call_llm_with_prompt(prompt)
-        logger.debug(f"Thinking => {response}")  # 降级为debug级别，不在控制台显示
         
-        # Record the thinking without displaying it
-        self.trace("assistant", f"Thought: {response}", display=False)
-        
-        # Decide on the next action based on the response
-        self.decide(response)
+        try:
+            # Get the LLM's response using the simpler method
+            response = self.llm_client.call_llm_with_prompt(prompt)
+            logger.debug(f"Thinking => {response}")  # 降级为debug级别，不在控制台显示
+            
+            # Record the thinking without displaying it
+            self.trace("assistant", f"Thought: {response}", display=False)
+            
+            # Decide on the next action based on the response
+            self.decide(response)
+        except ConnectionError as e:
+            # 处理连接错误，直接退出 React loop
+            logger.error(f"Connection error in ReActAgent.think: {str(e)}")
+            self.trace("system", f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {str(e)}", display=True)
+            # 不再调用 self.think()，直接退出循环
+            console.print("[bold red]Exiting ReAct loop due to connection error.[/bold red]")
+            return
 
     def decide(self, response: str) -> None:
         """
@@ -370,9 +356,9 @@ Remember that you are helping a user who may not be a technical expert. Provide 
                     # Execute the action without displaying intermediate steps
                     self.act(tool_name, action.get("input", self.query))
             
-            elif "answer" in parsed_response:
+            elif "final_answer" in parsed_response:
                 # Format and display the final answer with rich formatting
-                answer = parsed_response['answer']
+                answer = parsed_response['final_answer']
                 
                 # Create a beautiful panel for the answer
                 console.print("\n")  # Add some spacing
@@ -389,7 +375,7 @@ Remember that you are helping a user who may not be a technical expert. Provide 
             
             else:
                 # Handle invalid response format
-                raise ValueError("Invalid response format: missing 'action' or 'answer' field")
+                raise ValueError("Invalid response format: missing 'action' or 'final_answer' field")
         
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse response as JSON: {e}")
@@ -480,6 +466,7 @@ Remember that you are helping a user who may not be a technical expert. Provide 
         self.trace(role="user", content=query)
         
         # Start the reasoning process
+        console.print("\n[bold blue]Starting reasoning process...[/bold blue]")
         self.think()
         
         # Return the last message content (should be the final answer)
@@ -512,6 +499,9 @@ def script_tool(script_request: str) -> str:
     - filename: The name of the script file to create or execute
     - content: The content of the script (only for creation)
     - interpreter: The interpreter to use (e.g., "python", "bash", "node")
+    - args: List of arguments to pass to the script (optional)
+    - env_vars: Dictionary of environment variables to set (optional)
+    - timeout: Maximum execution time in seconds (optional)
     
     Args:
         script_request (str): JSON string containing the script request.
@@ -528,6 +518,9 @@ def script_tool(script_request: str) -> str:
         filename = request.get("filename", "")
         content = request.get("content", "")
         interpreter = request.get("interpreter", "")
+        args = request.get("args", [])  # Extract arguments list
+        env_vars = request.get("env_vars", {})  # Extract environment variables
+        timeout = request.get("timeout", None)  # Extract timeout setting
         
         # Validate required fields
         if not filename:
@@ -562,8 +555,19 @@ def script_tool(script_request: str) -> str:
                 # Use the shebang line or execute directly if executable
                 command = f"./{filename}"
             
-            # Execute the script
-            return_code, output, _ = execute_command(command)
+            # Add arguments to the command if provided
+            if args:
+                # Convert all arguments to strings and join with spaces
+                args_str = " ".join([str(arg) for arg in args])
+                command = f"{command} {args_str}"
+            
+            # Execute the script with environment variables and timeout if provided
+            return_code, output, _ = execute_command(
+                command, 
+                env=env_vars, 
+                timeout=timeout
+            )
+            
             return f"Script: {filename}\nCommand: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
             
         return f"Script {action} completed for {filename}"
@@ -602,7 +606,7 @@ def create_react_agent(llm_client: LLMClient,
     agent.register_tool(
         ToolName.SCRIPT,
         script_tool,
-        "Create and execute scripts in various languages. Send a JSON request with 'action' (create/execute/create_and_execute), 'filename', 'content' (for creation), and 'interpreter' (optional, e.g., python/bash/node)."
+        "Create and execute scripts in various languages. Send a JSON request with 'action' (create/execute/create_and_execute), 'filename', 'content' (for creation), 'interpreter' (optional, e.g., python/bash/node), 'args' (optional, list of arguments to pass to the script), 'env_vars' (optional, dictionary of environment variables to set), and 'timeout' (optional, maximum execution time in seconds)."
     )
     
     # Return the configured agent

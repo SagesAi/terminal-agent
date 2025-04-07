@@ -6,6 +6,7 @@ Command-line interface for Terminal Agent
 import os
 import sys
 import pyfiglet
+import logging
 from rich.console import Console
 from dotenv import load_dotenv, find_dotenv
 from prompt_toolkit import PromptSession
@@ -13,9 +14,11 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.styles import Style
 import typer
+from datetime import datetime
 
 from terminal_agent.core.agent import TerminalAgent
 from terminal_agent.utils.command_executor import terminate_current_command, reset_stop_flag
+from terminal_agent.utils.logging_config import configure_logging
 
 # Initialize Rich console
 console = Console()
@@ -27,6 +30,7 @@ style = Style.from_dict({
 
 app = typer.Typer()
 
+@app.command()
 def main():
     """Main entry point for the Terminal Agent CLI"""
     # Display welcome banner
@@ -51,6 +55,14 @@ def main():
     else:
         console.print("[yellow]No .env file found. Looking for API keys in environment variables.[/yellow]")
         console.print("[yellow]You can create a .env file with your API keys for easier configuration.[/yellow]")
+    
+    # 配置日志系统
+    log_level_str = os.getenv("LOG_LEVEL", "WARNING").upper()
+    log_file = configure_logging(log_level_str=log_level_str, enable_file_logging=True)
+    
+    if log_level_str == "DEBUG":
+        console.print(f"[bold green]日志级别设置为: {log_level_str}[/bold green]")
+        console.print(f"[bold green]日志文件保存在: {log_file}[/bold green]")
     
     # Check for API keys and determine provider
     openai_api_key = os.getenv("OPENAI_API_KEY")

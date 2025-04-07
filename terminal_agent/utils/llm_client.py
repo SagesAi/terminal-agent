@@ -13,6 +13,10 @@ import re
 import json
 import logging
 from rich.progress import Progress
+from terminal_agent.utils.logging_config import get_logger
+
+# 获取日志记录器
+logger = get_logger(__name__)
 
 # 初始化Rich控制台
 console = Console()
@@ -187,6 +191,9 @@ class LLMClient:
             
         Returns:
             The model's response text
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
         """
         try:
             with Progress() as progress:
@@ -219,24 +226,34 @@ class LLMClient:
                     # 记录API请求以便调试
                     #console.print("[dim]Sending request to DeepSeek API...[/dim]")
                     
-                    with httpx.Client(timeout=60.0) as client:
-                        response = client.post(
-                            f"{self.api_base}/chat/completions",
-                            headers=headers,
-                            json=payload
-                        )
-                        
-                        # 如果请求失败，打印详细错误信息
-                        if response.status_code != 200:
-                            console.print(f"[bold red]DeepSeek API Error: Status {response.status_code}[/bold red]")
-                            console.print(f"[bold red]Response: {response.text}[/bold red]")
-                            response.raise_for_status()
+                    try:
+                        with httpx.Client(timeout=60.0) as client:
+                            response = client.post(
+                                f"{self.api_base}/chat/completions",
+                                headers=headers,
+                                json=payload
+                            )
                             
-                        data = response.json()
-                    
-                    progress.update(task, completed=100)
-                    return data["choices"][0]["message"]["content"]
+                            # 如果请求失败，打印详细错误信息
+                            if response.status_code != 200:
+                                console.print(f"[bold red]DeepSeek API Error: Status {response.status_code}[/bold red]")
+                                console.print(f"[bold red]Response: {response.text}[/bold red]")
+                                response.raise_for_status()
+                                
+                            data = response.json()
+                        
+                        progress.update(task, completed=100)
+                        return data["choices"][0]["message"]["content"]
+                    except httpx.ConnectError as e:
+                        # 连接错误，这是一个严重的错误，应该直接退出 React loop
+                        logger.error(f"Connection error with {self.provider.upper()} API: {str(e)}")
+                        console.print(f"[bold red]Connection error with {self.provider.upper()} API: {str(e)}[/bold red]")
+                        # 抛出特定的连接错误异常
+                        raise ConnectionError(f"Unable to connect to {self.provider.upper()} API: {str(e)}")
                 
+        except ConnectionError:
+            # 直接重新抛出连接错误，不进行处理
+            raise
         except Exception as e:
             console.print(f"[bold red]Error calling {self.provider.upper()} API: {str(e)}[/bold red]")
             # 打印更详细的错误信息以便调试
