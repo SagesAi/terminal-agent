@@ -42,19 +42,68 @@ def main():
     
     # Load environment variables from .env file
     # Try to find .env file in several locations
-    dotenv_path = find_dotenv(usecwd=True)
-    if not dotenv_path:
-        # If not found in current directory, check user's home directory
-        home_env = os.path.join(os.path.expanduser("~"), ".terminal_agent.env")
-        if os.path.exists(home_env):
-            dotenv_path = home_env
+    home_config_dir = os.path.join(os.path.expanduser("~"), ".terminal_agent")
+    home_env = os.path.join(home_config_dir, ".env")
     
-    if dotenv_path:
+    # 首先检查 ~/.terminal_agent/.env 文件
+    if os.path.exists(home_env):
+        dotenv_path = home_env
         console.print(f"[bold green]Loaded environment from: {dotenv_path}[/bold green]")
-        load_dotenv(dotenv_path)
     else:
-        console.print("[yellow]No .env file found. Looking for API keys in environment variables.[/yellow]")
-        console.print("[yellow]You can create a .env file with your API keys for easier configuration.[/yellow]")
+        # 如果在用户目录下没找到，再检查当前目录
+        dotenv_path = find_dotenv(usecwd=True)
+        if dotenv_path:
+            console.print(f"[bold green]Loaded environment from: {dotenv_path}[/bold green]")
+        else:
+            console.print("[yellow]No .env file found. Looking for API keys in environment variables.[/yellow]")
+            console.print("[yellow]You can create a .env file with your API keys for easier configuration:[/yellow]")
+            
+            # 打印 .env 示例
+            console.print("\n[bold cyan]Example .env file content:[/bold cyan]")
+            
+            # 使用 Rich 的 Panel 和 Syntax 功能美化 .env 示例
+            from rich.panel import Panel
+            from rich.syntax import Syntax
+            
+            env_example = """# LLM Provider settings (uncomment the provider you want to use)
+# OpenAI settings
+OPENAI_API_KEY=your_openai_key_here
+LLM_PROVIDER=openai
+LLM_MODEL=gpt-4
+
+# DeepSeek settings (alternative)
+# DEEPSEEK_API_KEY=your_deepseek_key_here
+# LLM_PROVIDER=deepseek
+# LLM_MODEL=deepseek-chat
+
+# Logging settings (optional)
+# LOG_LEVEL=INFO  # Options: DEBUG, INFO, WARNING, ERROR, CRITICAL"""
+            
+            # 创建语法高亮的内容
+            syntax = Syntax(env_example, "ini", theme="monokai", line_numbers=True, word_wrap=True)
+            
+            # 创建面板
+            panel = Panel(
+                syntax,
+                title="[bold green].env Example[/bold green]",
+                border_style="cyan",
+                padding=(1, 2),
+                expand=False
+            )
+            
+            # 显示面板
+            console.print(panel)
+            
+            console.print("\n[yellow]You can create this file in one of these locations:[/yellow]")
+            console.print(f"[bold cyan]1. Create ~/.terminal_agent/.env (recommended)[/bold cyan]")
+            console.print("   mkdir -p ~/.terminal_agent && touch ~/.terminal_agent/.env")
+            console.print("[cyan]2. Or create .env in your current directory[/cyan]")
+            console.print("   touch .env")
+            console.print("\n[dim]Then copy the example content above into your .env file and update with your API keys.[/dim]")
+            
+    # 加载找到的环境变量文件
+    if dotenv_path:
+        load_dotenv(dotenv_path)
     
     # 配置日志系统
     log_level_str = os.getenv("LOG_LEVEL", "WARNING").upper()
