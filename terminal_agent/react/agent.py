@@ -569,6 +569,15 @@ def shell_command_tool(command: str) -> str:
     Returns:
         str: The command output.
     """
+    # 检查命令安全性
+    from terminal_agent.utils.command_safety import check_command_safety, display_safety_warning
+    
+    is_safe, warnings = check_command_safety(command)
+    
+    # 显示安全警告（如果有）
+    if warnings:
+        display_safety_warning(command, warnings)
+    
     return_code, output, _ = execute_command(command)
     return f"Command: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
 
@@ -581,7 +590,7 @@ def script_tool(script_request: str) -> str:
     - action: "create", "execute", or "create_and_execute"
     - filename: The name of the script file to create or execute
     - content: The content of the script (only for creation)
-    - interpreter: The interpreter to use (e.g., "python", "bash", "node")
+    - interpreter: The interpreter to use (e.g., "python3", "bash", "node")
     - args: List of arguments to pass to the script (optional)
     - env_vars: Dictionary of environment variables to set (optional)
     - timeout: Maximum execution time in seconds (optional)
@@ -593,6 +602,9 @@ def script_tool(script_request: str) -> str:
         str: The result of the script operation.
     """
     try:
+        # Import command safety module
+        from terminal_agent.utils.command_safety import check_script_safety, display_script_safety_warning
+        
         # Parse the script request
         request = json.loads(script_request)
         
@@ -614,6 +626,13 @@ def script_tool(script_request: str) -> str:
             if not content:
                 return "Error: Script content is required for creation."
                 
+            # Check script safety
+            is_safe, warnings = check_script_safety(content)
+            
+            # Display safety warnings if any
+            if warnings:
+                display_script_safety_warning(content, warnings)
+                
             # Ensure the script has the correct permissions
             try:
                 with open(filename, "w") as f:
@@ -630,6 +649,21 @@ def script_tool(script_request: str) -> str:
         if action in ["execute", "create_and_execute"]:
             if not os.path.exists(filename):
                 return f"Error: Script file {filename} does not exist."
+                
+            # If we're just executing (not creating), check the script content for safety
+            if action == "execute":
+                try:
+                    with open(filename, "r") as f:
+                        script_content = f.read()
+                    
+                    # Check script safety
+                    is_safe, warnings = check_script_safety(script_content)
+                    
+                    # Display safety warnings if any
+                    if warnings:
+                        display_script_safety_warning(script_content, warnings)
+                except Exception as e:
+                    console.print(f"[yellow]Warning: Could not check script safety: {str(e)}[/yellow]")
                 
             # Determine the command to run the script
             if interpreter:
@@ -651,10 +685,11 @@ def script_tool(script_request: str) -> str:
                 timeout=timeout
             )
             
-            return f"Script: {filename}\nCommand: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
-            
-        return f"Script {action} completed for {filename}"
+            return f"Command: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
         
+        # Handle unknown action
+        return f"Error: Unknown action '{action}'. Must be 'create', 'execute', or 'create_and_execute'."
+    
     except json.JSONDecodeError:
         return "Error: Invalid JSON format in script request."
     except Exception as e:
