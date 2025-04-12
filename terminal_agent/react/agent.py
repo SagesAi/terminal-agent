@@ -304,9 +304,9 @@ Remember:
         try:
             # Get the LLM's response using the simpler method
             response = self.llm_client.call_llm_with_prompt(prompt)
-            logger.debug(f"Thinking => {response}")  # 降级为debug级别，不在控制台显示
+            logger.debug(f"Thinking => {response}")
             
-            # Record the thinking without displaying it
+            # 记录思考过程但不显示，显示逻辑移到 decide 方法中
             self.trace("assistant", f"Thought: {response}", display=False)
             
             # Decide on the next action based on the response
@@ -329,6 +329,34 @@ Remember:
         try:
             # Try to parse the response as JSON
             parsed_response = self._parse_json_response(response)
+            
+            # 显示思考过程，实现信息透明
+            if "thought" in parsed_response:
+                thought = parsed_response["thought"]
+                
+                # 使用 Rich 的 Panel 和 Markdown 功能美化思考过程显示
+                from rich.panel import Panel
+                from rich.markdown import Markdown
+                
+                # 直接使用原始思考内容，不进行额外处理
+                formatted_thought = thought
+                
+                # 创建 Markdown 对象
+                md = Markdown(formatted_thought)
+                
+                # 创建面板
+                panel = Panel(
+                    md,
+                    title="[bold blue]💭 Thinking Process[/bold blue]",
+                    border_style="blue",
+                    padding=(1, 2),
+                    expand=False
+                )
+                
+                # 显示面板
+                console.print("\n")
+                console.print(panel)
+                console.print("\n")
             
             if "action" in parsed_response:
                 action = parsed_response["action"]
@@ -431,8 +459,11 @@ Remember:
             # Execute the tool
             result = tool.use(query)
             
+            # 智能截断长输出，防止超出模型的输入 token 限制
+            truncated_result = self._truncate_long_output(result)
+            
             # Format the observation
-            observation = f"Observation from {tool_name}: {result}"
+            observation = f"Observation from {tool_name}: {truncated_result}"
             
             # Record the observation but don't display the full details
             logger.debug(observation)
@@ -445,6 +476,58 @@ Remember:
             logger.error(f"No tool registered for: {tool_name}")
             self.trace("system", f"Error: Tool {tool_name} not found", display=True)
             self.think()
+
+    def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
+        """
+        Intelligently truncate long outputs to prevent exceeding the model's input token limit.
+        
+        Strategy:
+        1. If the output does not exceed the maximum token count, return it as is
+        2. If it exceeds, preserve the beginning, end, and key parts, replacing the middle with a summary
+        
+        Args:
+            text (str): The text to be processed
+            max_tokens (int): Maximum allowed token count, default 4000
+            
+        Returns:
+            str: The processed text
+        """
+        # Roughly estimate token count (approximately 4 characters per token for English)
+        estimated_tokens = len(text) / 4
+        
+        if estimated_tokens <= max_tokens:
+            return text
+        
+        # Calculate the length to preserve for head and tail (30% each)
+        head_size = int(max_tokens * 0.3) * 4
+        tail_size = int(max_tokens * 0.3) * 4
+        
+        # Extract head and tail
+        head = text[:head_size]
+        tail = text[-tail_size:]
+        
+        # Create summary information
+        omitted_length = len(text) - head_size - tail_size
+        omitted_tokens = int(omitted_length / 4)
+        
+        # Check if it contains tables or structured data
+        has_table = '|' in text and '-+-' in text
+        has_json = '{' in text and '}' in text
+        has_xml = '<' in text and '>' in text
+        
+        summary = f"\n\n[...Omitted approximately {omitted_tokens} tokens..."
+        
+        if has_table:
+            summary += ", containing table data"
+        if has_json:
+            summary += ", containing JSON data"
+        if has_xml:
+            summary += ", containing XML/HTML data"
+            
+        summary += "]\n\n"
+        
+        # Combine the final result
+        return head + summary + tail
 
     def execute(self, query: str) -> str:
         """
