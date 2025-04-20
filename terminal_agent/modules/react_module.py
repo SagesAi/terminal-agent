@@ -53,11 +53,11 @@ class ReActModule:
         Returns:
             Response text with results
         """
-        # Display a message indicating that ReAct agent is processing
+        # Display a friendly message indicating that we're processing the query
         console.print(Panel(
-            "[bold]Processing your query using ReAct agent...[/bold]\n"
-            "This agent will reason step-by-step and use tools to answer your query.",
-            title="[bold blue]ReAct Agent[/bold blue]",
+            "[bold]Processing your request...[/bold]"
+            "I'll complete your task right away.",
+            title="[bold blue]Terminal Agent[/bold blue]",
             expand=False
         ))
         
