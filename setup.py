@@ -13,14 +13,24 @@ with open("README.md", "r", encoding="utf-8") as fh:
 
 # 核心依赖
 requirements = [
-    "openai>=1.0.0",
-    "httpx>=0.24.0",
-    "rich>=13.0.0",
+    "openai>=1.12.0",
+    "httpx>=0.26.0",
+    "rich>=13.7.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
-    "psutil>=5.9.0",
+    "psutil>=5.9.6",
     "colorama>=0.4.6",
+    "pyfiglet>=1.0.2",
+    "typer>=0.9.0",
+    "prompt-toolkit>=3.0.43",
 ]
+
+# 可选依赖
+extras_require = {
+    "gemini": ["google-generativeai>=0.3.0"],
+    "claude": ["anthropic>=0.5.0"],
+    "all": ["google-generativeai>=0.3.0", "anthropic>=0.5.0"],
+}
 
 setup(
     name="terminal-agent",
@@ -44,6 +54,7 @@ setup(
     ],
     python_requires=">=3.8",
     install_requires=requirements,
+    extras_require=extras_require,
     entry_points={
         "console_scripts": [
             "terminal-agent=terminal_agent.cli:main",
