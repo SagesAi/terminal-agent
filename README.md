@@ -3,7 +3,7 @@
 A powerful, intelligent agent for the terminal that supports natural language interaction to perform system diagnostics, command translation, and automated software installation.
 
 <p align="center">
-  <img src="./docs/images/terminal_agent_logo.png" alt="Terminal Agent Logo" width="200"/>
+  <img src="./images/terminal_agent_logo.png" alt="Terminal Agent Logo" width="200"/>
 </p>
 
 ## Features
@@ -40,22 +40,6 @@ A powerful, intelligent agent for the terminal that supports natural language in
 - Support for various open-source models (Llama, Mistral, etc.)
 - Easy switching between cloud and local providers
 
-## Demo
-
-<p align="center">
-  <video width="720" controls>
-    <source src="./docs/images/terminal_agent.mp4" type="video/mp4">
-    Your browser does not support the video tag.
-  </video>
-</p>
-
-<p align="center">
-  <a href="./docs/images/terminal_agent.mp4">
-    <img src="./docs/images/terminal_agent_logo.png" alt="点击查看演示视频" width="400"/>
-    <br>
-    <em>点击查看演示视频</em>
-  </a>
-</p>
 
 ## Architecture
 
