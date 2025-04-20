@@ -57,7 +57,25 @@ A powerful, intelligent agent for the terminal that supports natural language in
   </a>
 </p>
 
+## Architecture
 
+Terminal Agent is built with a modular architecture:
+
+- **Core Components**:
+  - `LLMClient`: Flexible client supporting multiple LLM providers
+  - `CommandExecutor`: Safe execution of system commands
+  - `CommandAnalyzer`: Analysis and validation of generated commands
+  - `CommandOrchestrator`: Coordination of command sequences
+
+- **Modules**:
+  - `DiagnosticsModule`: System problem diagnosis
+  - `CommandTranslatorModule`: Natural language to command translation
+  - `SoftwareInstallerModule`: Automated software installation
+  - `ReActModule`: ReAct-based reasoning for complex tasks
+
+- **LLM Providers**:
+  - Modular provider system with consistent interfaces
+  - Easy extension to support additional providers
 
 ## Installation
 
@@ -84,7 +102,26 @@ echo "GOOGLE_API_KEY=your_api_key_here" >> .env
 echo "ANTHROPIC_API_KEY=your_api_key_here" >> .env
 ```
 
+## Configuration
+
+Terminal Agent can be configured through environment variables or a `.env` file:
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `OPENAI_API_KEY` | OpenAI API key | None |
+| `DEEPSEEK_API_KEY` | DeepSeek API key | None |
+| `GOOGLE_API_KEY` | Google API key for Gemini | None |
+| `ANTHROPIC_API_KEY` | Anthropic API key for Claude | None |
+| `TERMINAL_AGENT_PROVIDER` | Default LLM provider | `openai` |
+| `TERMINAL_AGENT_MODEL` | Default model for the selected provider | Provider-specific |
+| `TERMINAL_AGENT_API_BASE` | Custom API base URL | Provider-specific |
+| `OLLAMA_API_BASE` | Ollama API base URL | `http://localhost:11434` |
+| `VLLM_API_BASE` | VLLM API base URL | `http://localhost:8000` |
+| `VLLM_API_KEY` | VLLM API key (if required) | None |
+
 ## Usage
+
+### Basic Usage
 
 1. Run Terminal Agent
 ```bash
@@ -124,11 +161,11 @@ TERMINAL_AGENT_PROVIDER=vllm VLLM_API_BASE=http://localhost:8000 terminal-agent
 echo "TERMINAL_AGENT_PROVIDER=claude" >> ~/.terminal_agent/.env
 ```
 
-## Using Local Models
+### Using Local Models
 
 Terminal Agent supports local LLM deployments through Ollama and VLLM, providing privacy and flexibility.
 
-### Ollama Integration
+#### Ollama Integration
 
 [Ollama](https://ollama.com) allows you to run various open-source models locally on your machine.
 
@@ -157,7 +194,7 @@ Terminal Agent supports local LLM deployments through Ollama and VLLM, providing
    echo "TERMINAL_AGENT_MODEL=llama3" >> ~/.terminal_agent/.env
    ```
 
-### VLLM Integration
+#### VLLM Integration
 
 [VLLM](https://github.com/vllm-project/vllm) is a high-throughput and memory-efficient inference engine for LLMs.
 
@@ -183,49 +220,12 @@ Terminal Agent supports local LLM deployments through Ollama and VLLM, providing
    echo "VLLM_API_BASE=http://localhost:8000" >> ~/.terminal_agent/.env
    ```
 
-## Security Considerations
+### Security Considerations
 
 - Terminal Agent will request user confirmation before executing any command
 - Additional warnings are displayed for potentially dangerous commands
 - It is not recommended to run this agent as a root user
 - API keys are managed through environment variables for security
-
-## Architecture
-
-Terminal Agent is built with a modular architecture:
-
-- **Core Components**:
-  - `LLMClient`: Flexible client supporting multiple LLM providers
-  - `CommandExecutor`: Safe execution of system commands
-  - `CommandAnalyzer`: Analysis and validation of generated commands
-  - `CommandOrchestrator`: Coordination of command sequences
-
-- **Modules**:
-  - `DiagnosticsModule`: System problem diagnosis
-  - `CommandTranslatorModule`: Natural language to command translation
-  - `SoftwareInstallerModule`: Automated software installation
-  - `ReActModule`: ReAct-based reasoning for complex tasks
-
-- **LLM Providers**:
-  - Modular provider system with consistent interfaces
-  - Easy extension to support additional providers
-
-## Configuration
-
-Terminal Agent can be configured through environment variables or a `.env` file:
-
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `OPENAI_API_KEY` | OpenAI API key | None |
-| `DEEPSEEK_API_KEY` | DeepSeek API key | None |
-| `GOOGLE_API_KEY` | Google API key for Gemini | None |
-| `ANTHROPIC_API_KEY` | Anthropic API key for Claude | None |
-| `TERMINAL_AGENT_PROVIDER` | Default LLM provider | `openai` |
-| `TERMINAL_AGENT_MODEL` | Default model for the selected provider | Provider-specific |
-| `TERMINAL_AGENT_API_BASE` | Custom API base URL | Provider-specific |
-| `OLLAMA_API_BASE` | Ollama API base URL | `http://localhost:11434` |
-| `VLLM_API_BASE` | VLLM API base URL | `http://localhost:8000` |
-| `VLLM_API_KEY` | VLLM API key (if required) | None |
 
 ## Contributing
 
