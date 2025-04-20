@@ -41,7 +41,7 @@ class CommandContextManager:
         
         # 记录日志
         logger.info("CommandContextManager initialized (simplified compatibility layer)")
-        console.print("[dim]CommandContextManager已初始化(简化兼容层)[/dim]", style="dim")
+        
     
     def _initialize_common_prefixes(self):
         """初始化常见命令前缀"""
