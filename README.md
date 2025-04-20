@@ -3,7 +3,7 @@
 A powerful, intelligent agent for the terminal that supports natural language interaction to perform system diagnostics, command translation, and automated software installation.
 
 <p align="center">
-  <img src="docs/images/terminal_agent_logo.png" alt="Terminal Agent Logo"/>
+  <img src="./docs/images/terminal_agent_logo.png" alt="Terminal Agent Logo" width="200"/>
 </p>
 
 ## Features
@@ -44,16 +44,20 @@ A powerful, intelligent agent for the terminal that supports natural language in
 
 <p align="center">
   <video width="720" controls>
-    <source src="docs/images/terminal_agent.mp4" type="video/mp4">
+    <source src="./docs/images/terminal_agent.mp4" type="video/mp4">
     Your browser does not support the video tag.
   </video>
 </p>
 
-Terminal Agent 演示视频展示了如何使用自然语言与终端交互，包括：
-- 系统诊断和问题解决
-- 命令转换和执行
-- 软件安装和配置
-- 使用脚本工具处理复杂任务，如 Kubernetes 集群部署和容器编排
+<p align="center">
+  <a href="./docs/images/terminal_agent.mp4">
+    <img src="./docs/images/terminal_agent_logo.png" alt="点击查看演示视频" width="400"/>
+    <br>
+    <em>点击查看演示视频</em>
+  </a>
+</p>
+
+
 
 ## Installation
 
