@@ -6,6 +6,10 @@ A powerful, intelligent agent for the terminal that supports natural language in
   <img src="./images/terminal_agent_logo.png" alt="Terminal Agent Logo" width="200"/>
 </p>
 
+<p align="center">
+  <img src="./images/demo.gif" alt="Terminal Agent Demo" width="700"/>
+</p>
+
 ## Features
 
 ### 1. System Diagnostics
