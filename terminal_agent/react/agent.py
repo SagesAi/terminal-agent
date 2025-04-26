@@ -9,6 +9,7 @@ reasoning-action-observation loop to solve tasks using available tools.
 import json
 import logging
 import os
+import sys
 from enum import Enum, auto
 from typing import Dict, List, Callable, Union, Optional, Any, Tuple
 
@@ -312,6 +313,47 @@ class ReActAgent:
             self.trace("system", f"Error: {str(e)}. Trying again.")
             self.think()
 
+    def act(self, tool_name: ToolName, query: str) -> None:
+        """
+        Executes the specified tool's function on the query and logs the result.
+
+        Args:
+            tool_name (ToolName): The tool to be used.
+            query (str): The query for the tool.
+        """
+        tool = self.tools.get(tool_name)
+
+        if tool:
+            # Execute the tool (only show minimal information to the user)
+            console.print(f"\n[bold cyan]Executing: {tool_name}[/bold cyan]")
+
+            # Execute the tool
+            result = tool.use(query)
+
+            # Check if this is an abort request from the message tool
+            if tool_name == ToolName.MESSAGE and result == "__ABORT_TASK__":
+                console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
+                self.trace("system", "Task aborted by user", display=False)
+                return
+
+            # 智能截断长输出，防止超出模型的输入 token 限制
+            truncated_result = self._truncate_long_output(result)
+
+            # Format the observation
+            observation = f"Observation from {tool_name}: {truncated_result}"
+
+            # Record the observation but don't display the full details
+            logger.debug(observation)
+            self.trace("system", observation, display=False)
+
+            # Continue the reasoning process
+            self.think()
+
+        else:
+            logger.error(f"No tool registered for: {tool_name}")
+            self.trace("system", f"Error: Tool {tool_name} not found", display=True)
+            self.think()
+
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
         Parses the JSON response from the LLM.
@@ -338,42 +380,6 @@ class ReActAgent:
         else:
             # If no JSON is found, try to parse the whole response
             return json.loads(cleaned_response)
-
-    def act(self, tool_name: ToolName, query: str) -> None:
-        """
-        Executes the specified tool's function on the query and logs the result.
-
-        Args:
-            tool_name (ToolName): The tool to be used.
-            query (str): The query for the tool.
-        """
-        tool = self.tools.get(tool_name)
-
-        if tool:
-            # Execute the tool (only show minimal information to the user)
-            console.print(f"\n[bold cyan]Executing: {tool_name}[/bold cyan]")
-
-            # Execute the tool
-            result = tool.use(query)
-
-
-            # 智能截断长输出，防止超出模型的输入 token 限制
-            truncated_result = self._truncate_long_output(result)
-
-            # Format the observation
-            observation = f"Observation from {tool_name}: {truncated_result}"
-
-            # Record the observation but don't display the full details
-            logger.debug(observation)
-            self.trace("system", observation, display=False)
-
-            # Continue the reasoning process
-            self.think()
-
-        else:
-            logger.error(f"No tool registered for: {tool_name}")
-            self.trace("system", f"Error: Tool {tool_name} not found", display=True)
-            self.think()
 
     def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
         """
@@ -699,50 +705,59 @@ def script_tool(script_request: str) -> str:
 
 def message_tool(query: str) -> str:
     """
-    向用户提问并等待回答的工具。
+    A tool to ask the user questions and wait for responses.
     
-    该工具允许 Agent 向用户提问并获取回答，适用于以下场景：
-    - 需要澄清模糊的需求
-    - 在执行重要操作前需要确认
-    - 需要额外信息来完成任务
-    - 提供选项并请求用户选择
-    - 验证对任务成功至关重要的假设
+    This tool allows the Agent to ask questions and get answers from users, suitable for:
+    - Clarifying ambiguous requirements
+    - Confirming before important operations
+    - Gathering additional information to complete tasks
+    - Offering options and requesting user preferences
+    - Validating assumptions critical to task success
     
     Args:
-        query (str): 要向用户提出的问题，可以是简单字符串或 JSON 格式。
-                    如果是 JSON 格式，应包含 "question" 字段。
-                    例如: {"question": "您希望使用哪种配置选项？"}
+        query (str): The question to ask the user, can be a simple string or JSON format.
+                    If JSON format, it should contain a "question" field.
+                    Example: {"question": "Which configuration option would you prefer?"}
         
     Returns:
-        str: 用户的回答。
+        str: The user's answer.
     """
     try:
-        # 直接使用查询作为问题
+        # Use the query directly as the question
         question = query
         
-        # 尝试解析 JSON 格式（如果是 JSON 字符串）
+        # Try to parse JSON format (if it's a JSON string)
         if query.startswith('{') and query.endswith('}'):
             try:
                 query_data = json.loads(query)
                 if "question" in query_data:
                     question = query_data["question"]
             except json.JSONDecodeError:
-                # 如果解析失败，仍然使用原始查询
+                # If parsing fails, still use the original query
                 pass
             
-        # 显示问题给用户
+        # Display the question to the user
         console.print()
         console.print(Panel(
             Markdown(question),
-            title="[bold cyan]Agent 提问[/bold cyan]",
+            title="[bold cyan]Agent Question[/bold cyan]",
             border_style="cyan"
         ))
         
-        # 获取用户输入
-        console.print("[bold cyan]请输入您的回答:[/bold cyan]")
+        # Get user input
+        console.print("[bold cyan]Please enter your answer:[/bold cyan]")
+        console.print("[dim](Type 'quit' or 'stop' to exit)[/dim]")
         user_response = input("> ")
         
-        # 返回用户回答
+        # Remove leading whitespace from user input
+        user_response = user_response.lstrip()
+        
+        # Handle special keywords
+        if user_response.lower() in ["quit", "exit", "stop"]:
+            console.print("[bold yellow]User requested to abort current task[/bold yellow]")
+            return "__ABORT_TASK__"
+        
+        # Return the user's answer
         return user_response
     except Exception as e:
         logger.error(f"Error in message_tool: {e}")

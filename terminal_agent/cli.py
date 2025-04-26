@@ -319,6 +319,9 @@ TERMINAL_AGENT_MODEL=gpt-4
             # 在每次新的用户输入前重置停止标志
             reset_stop_flag()
                 
+            # 去除用户输入最前面的空格
+            user_input = user_input.lstrip()
+                
             # Process the input
             agent.process_user_input(user_input)
             
