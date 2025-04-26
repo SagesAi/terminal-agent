@@ -43,6 +43,7 @@ class ToolName(Enum):
     SHELL = auto()
     SEARCH = auto()
     SCRIPT = auto()
+    MESSAGE = auto()  # 新增消息工具，用于向用户提问
     NONE = auto()
 
     def __str__(self) -> str:
@@ -132,110 +133,6 @@ class ReActAgent:
         # Create default template if it doesn't exist
         if not os.path.exists(template_path):
             self._create_default_template(template_path)
-
-    def _load_template(self, template_path: str) -> str:
-        """
-        Loads the prompt template from a file.
-
-        Args:
-            template_path (str): Path to the template file.
-
-        Returns:
-            str: The content of the prompt template file.
-        """
-        try:
-            with open(template_path, 'r', encoding='utf-8') as f:
-                return f.read()
-        except FileNotFoundError:
-            logger.warning(f"Template file not found at {template_path}. Creating default template.")
-            self._create_default_template(template_path)
-            with open(template_path, 'r', encoding='utf-8') as f:
-                return f.read()
-
-    def _create_default_template(self, template_path: str) -> None:
-        """
-        Creates a default template file if one doesn't exist.
-
-        Args:
-            template_path (str): Path where the template should be created.
-        """
-        logger.info("Creating default template")
-
-        # Default template content
-        default_template = """You are a ReAct (Reasoning and Acting) agent tasked with answering the following query:
-
-Query: {query}
-
-Current system information:
-- OS: {os}
-- Distribution: {distribution}
-- Version: {version}
-- Architecture: {architecture}
-
-Previous reasoning steps and observations:
-{history}
-
-Available tools: {tools}
-
-Use the following format:
-
-Thought: you should always think about what to do
-Action: the action to take, should be one of the available tools
-Action Input: the input to the action
-Observation: the result of the action
-... (this Thought/Action/Action Input/Observation can repeat N times)
-Thought: I now know the final answer
-Final Answer: the final answer to the original input question
-
-When responding, output a JSON object with the following structure:
-
-If you need to use a tool:
-{{
-    "thought": "Your detailed step-by-step reasoning about what to do next",
-    "action": {{
-        "name": "Tool name from the available tools list",
-        "input": "Specific input for the tool"
-    }}
-}}
-
-If you have enough information to answer the query:
-{{
-    "thought": "I now know the final answer. Here is my reasoning process...",
-    "final_answer": "Your comprehensive answer to the original query"
-}}
-
-Tool Usage Guidelines:
-1. 'shell' tool: Use for simple commands that can be executed in a single step.
-2. 'script' tool: Preferred for complex tasks requiring multiple steps or logic. Use for:
-   - Data processing and transformation
-   - System maintenance and automation
-   - Problem diagnosis and troubleshooting
-   - Tasks that might be repeated in the future
-
-The 'script' tool accepts:
-- "action": "create", "execute", or "create_and_execute"
-- "filename": Script filename
-- "content": Script content
-- "interpreter": Optional (e.g., "python3", "bash", "node")
-- "args": Optional arguments list
-- "env_vars": Optional environment variables
-- "timeout": Optional execution time limit in seconds
-
-Error Handling Strategy:
-- Analyze error messages carefully
-- Identify root causes (dependencies, permissions, syntax)
-- Fix specific errors and retry
-- Try alternative approaches if multiple attempts fail
-
-Remember:
-- Think step-by-step and be thorough in your reasoning
-- Use tools strategically to gather necessary information
-- Base your reasoning on actual observations
-- Provide a final answer only when confident
-"""
-
-        with open(template_path, 'w', encoding='utf-8') as f:
-            f.write(default_template)
 
         logger.info(f"Created default template at {template_path}")
 
@@ -530,6 +427,112 @@ Remember:
         # Combine the final result
         return head + summary + tail
 
+    def _load_template(self, template_path: str) -> str:
+        """
+        Loads the prompt template from a file.
+
+        Args:
+            template_path (str): Path to the template file.
+
+        Returns:
+            str: The content of the prompt template file.
+        """
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.warning(f"Template file not found at {template_path}. Creating default template.")
+            self._create_default_template(template_path)
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+
+    def _create_default_template(self, template_path: str) -> None:
+        """
+        Creates a default template file if one doesn't exist.
+
+        Args:
+            template_path (str): Path where the template should be created.
+        """
+        logger.info("Creating default template")
+
+        # Default template content
+        default_template = """You are a ReAct (Reasoning and Acting) agent tasked with answering the following query:
+
+Query: {query}
+
+Current system information:
+- OS: {os}
+- Distribution: {distribution}
+- Version: {version}
+- Architecture: {architecture}
+
+Previous reasoning steps and observations:
+{history}
+
+Available tools: {tools}
+
+Use the following format:
+
+Thought: you should always think about what to do
+Action: the action to take, should be one of the available tools
+Action Input: the input to the action
+Observation: the result of the action
+... (this Thought/Action/Action Input/Observation can repeat N times)
+Thought: I now know the final answer
+Final Answer: the final answer to the original input question
+
+When responding, output a JSON object with the following structure:
+
+If you need to use a tool:
+{{
+    "thought": "Your detailed step-by-step reasoning about what to do next",
+    "action": {{
+        "name": "Tool name from the available tools list",
+        "input": "Specific input for the tool"
+    }}
+}}
+
+If you have enough information to answer the query:
+{{
+    "thought": "I now know the final answer. Here is my reasoning process...",
+    "final_answer": "Your comprehensive answer to the original query"
+}}
+
+Tool Usage Guidelines:
+1. 'shell' tool: Use for simple commands that can be executed in a single step.
+2. 'script' tool: Preferred for complex tasks requiring multiple steps or logic. Use for:
+   - Data processing and transformation
+   - System maintenance and automation
+   - Problem diagnosis and troubleshooting
+   - Tasks that might be repeated in the future
+
+The 'script' tool accepts:
+- "action": "create", "execute", or "create_and_execute"
+- "filename": Script filename
+- "content": Script content
+- "interpreter": Optional (e.g., "python3", "bash", "node")
+- "args": Optional arguments list
+- "env_vars": Optional environment variables
+- "timeout": Optional execution time limit in seconds
+
+Error Handling Strategy:
+- Analyze error messages carefully
+- Identify root causes (dependencies, permissions, syntax)
+- Fix specific errors and retry
+- Try alternative approaches if multiple attempts fail
+
+Remember:
+- Think step-by-step and be thorough in your reasoning
+- Use tools strategically to gather necessary information
+- Base your reasoning on actual observations
+- Provide a final answer only when confident
+"""
+
+        with open(template_path, 'w', encoding='utf-8') as f:
+            f.write(default_template)
+
+        logger.info(f"Created default template at {template_path}")
+
     def execute(self, query: str) -> str:
         """
         Executes the agent's query-processing workflow.
@@ -694,6 +697,58 @@ def script_tool(script_request: str) -> str:
         return f"Error processing script request: {str(e)}"
 
 
+def message_tool(query: str) -> str:
+    """
+    向用户提问并等待回答的工具。
+    
+    该工具允许 Agent 向用户提问并获取回答，适用于以下场景：
+    - 需要澄清模糊的需求
+    - 在执行重要操作前需要确认
+    - 需要额外信息来完成任务
+    - 提供选项并请求用户选择
+    - 验证对任务成功至关重要的假设
+    
+    Args:
+        query (str): 要向用户提出的问题，可以是简单字符串或 JSON 格式。
+                    如果是 JSON 格式，应包含 "question" 字段。
+                    例如: {"question": "您希望使用哪种配置选项？"}
+        
+    Returns:
+        str: 用户的回答。
+    """
+    try:
+        # 直接使用查询作为问题
+        question = query
+        
+        # 尝试解析 JSON 格式（如果是 JSON 字符串）
+        if query.startswith('{') and query.endswith('}'):
+            try:
+                query_data = json.loads(query)
+                if "question" in query_data:
+                    question = query_data["question"]
+            except json.JSONDecodeError:
+                # 如果解析失败，仍然使用原始查询
+                pass
+            
+        # 显示问题给用户
+        console.print()
+        console.print(Panel(
+            Markdown(question),
+            title="[bold cyan]Agent 提问[/bold cyan]",
+            border_style="cyan"
+        ))
+        
+        # 获取用户输入
+        console.print("[bold cyan]请输入您的回答:[/bold cyan]")
+        user_response = input("> ")
+        
+        # 返回用户回答
+        return user_response
+    except Exception as e:
+        logger.error(f"Error in message_tool: {e}")
+        return f"Error asking user: {str(e)}"
+
+
 def create_react_agent(llm_client: LLMClient,
                       system_info: Dict[str, Any],
                       command_analyzer: Optional[CommandAnalyzer] = None) -> ReActAgent:
@@ -723,6 +778,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.SCRIPT,
         script_tool,
         "Create and execute scripts in various languages. Send a JSON request with 'action' (create/execute/create_and_execute), 'filename', 'content' (for creation), 'interpreter' (optional, e.g., python/bash/node), 'args' (optional, list of arguments to pass to the script), 'env_vars' (optional, dictionary of environment variables to set), and 'timeout' (optional, maximum execution time in seconds)."
+    )
+
+    # Register the message tool
+    agent.register_tool(
+        ToolName.MESSAGE,
+        message_tool,
+        "Ask the user a question and wait for a response."
     )
 
     # Return the configured agent
