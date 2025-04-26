@@ -22,6 +22,8 @@ from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
 from terminal_agent.utils.logging_config import get_logger
+from terminal_agent.react.tools.files_tool import files_tool
+from terminal_agent.react.tools.script_tool import script_tool
 
 # Initialize Rich console
 console = Console()
@@ -45,6 +47,7 @@ class ToolName(Enum):
     SEARCH = auto()
     SCRIPT = auto()
     MESSAGE = auto()  # 新增消息工具，用于向用户提问
+    FILES = auto()    # 新增文件操作工具，用于文件管理
     NONE = auto()
 
     def __str__(self) -> str:
@@ -569,138 +572,22 @@ Remember:
 
 def shell_command_tool(command: str) -> str:
     """
-    Executes a shell command and returns its output.
+    Executes a shell command and returns the output.
 
     Args:
         command (str): The shell command to execute.
 
     Returns:
-        str: The command output.
-    """
-    # 检查命令安全性
-    from terminal_agent.utils.command_safety import check_command_safety, display_safety_warning
-
-    is_safe, warnings = check_command_safety(command)
-
-    # 显示安全警告（如果有）
-    if warnings:
-        display_safety_warning(command, warnings)
-
-    return_code, output, _ = execute_command(command)
-    return f"Command: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
-
-
-def script_tool(script_request: str) -> str:
-    """
-    Creates and executes a script based on the provided request.
-
-    The request should be in JSON format with the following fields:
-    - action: "create", "execute", or "create_and_execute"
-    - filename: The name of the script file to create or execute
-    - content: The content of the script (only for creation)
-    - interpreter: The interpreter to use (e.g., "python3", "bash", "node")
-    - args: List of arguments to pass to the script (optional)
-    - env_vars: Dictionary of environment variables to set (optional)
-    - timeout: Maximum execution time in seconds (optional)
-
-    Args:
-        script_request (str): JSON string containing the script request.
-
-    Returns:
-        str: The result of the script operation.
+        str: The output of the command.
     """
     try:
-        # Import command safety module
-        from terminal_agent.utils.command_safety import check_script_safety, display_script_safety_warning
-        # Parse the script request
-        if isinstance(script_request, dict):
-            request = script_request
-        else:
-            request = json.loads(script_request)
-        # Extract fields
-        action = request.get("action", "").lower()
-        filename = request.get("filename", "")
-        content = request.get("content", "")
-        interpreter = request.get("interpreter", "")
-        args = request.get("args", [])  # Extract arguments list
-        env_vars = request.get("env_vars", {})  # Extract environment variables
-        timeout = request.get("timeout", None)  # Extract timeout setting
-        # Validate required fields
-        if not filename:
-            return "Error: Filename is required."
-
-        # Create the script
-        if action in ["create", "create_and_execute"]:
-            if not content:
-                return "Error: Script content is required for creation."
-
-            # Check script safety
-            is_safe, warnings = check_script_safety(content)
-
-            # Display safety warnings if any
-            if warnings:
-                display_script_safety_warning(content, warnings)
-
-            # Ensure the script has the correct permissions
-            try:
-                with open(filename, "w") as f:
-                    f.write(content)
-
-                # Make the script executable
-                os.chmod(filename, 0o755)
-
-                console.print(f"[green]Script created: {filename}[/green]")
-            except Exception as e:
-                return f"Error creating script: {str(e)}"
-        # Execute the script
-        if action in ["execute", "create_and_execute"]:
-            if not os.path.exists(filename):
-                return f"Error: Script file {filename} does not exist."
-
-            # If we're just executing (not creating), check the script content for safety
-            if action == "execute":
-                try:
-                    with open(filename, "r") as f:
-                        script_content = f.read()
-
-                    # Check script safety
-                    is_safe, warnings = check_script_safety(script_content)
-
-                    # Display safety warnings if any
-                    if warnings:
-                        display_script_safety_warning(script_content, warnings)
-                except Exception as e:
-                    console.print(f"[yellow]Warning: Could not check script safety: {str(e)}[/yellow]")
-
-            # Determine the command to run the script
-            if interpreter:
-                command = f"{interpreter} {filename}"
-            else:
-                # Use the shebang line or execute directly if executable
-                command = f"./{filename}"
-
-            # Add arguments to the command if provided
-            if args:
-                # Convert all arguments to strings and join with spaces
-                args_str = " ".join([str(arg) for arg in args])
-                command = f"{command} {args_str}"
-
-            # Execute the script with environment variables and timeout if provided
-            return_code, output, _ = execute_command(
-                command,
-                env=env_vars,
-                timeout=timeout
-            )
-
-            return f"Command: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
-
-        # Handle unknown action
-        return f"Error: Unknown action '{action}'. Must be 'create', 'execute', or 'create_and_execute'."
-
-    except json.JSONDecodeError:
-        return "Error: Invalid JSON format in script request."
+        # Execute the command
+        return_code, output, _ = execute_command(command)
+        
+        # Return the command output
+        return f"Return Code: {return_code}\nOutput:\n{output}"
     except Exception as e:
-        return f"Error processing script request: {str(e)}"
+        return f"Error executing command: {str(e)}"
 
 
 def message_tool(query: str) -> str:
@@ -800,6 +687,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.MESSAGE,
         message_tool,
         "Ask the user a question and wait for a response."
+    )
+
+    # Register the files tool
+    agent.register_tool(
+        ToolName.FILES,
+        files_tool,
+        "Perform file operations including creating, reading, updating, and deleting files, as well as listing directory contents. Send a JSON request with 'operation' (create_file, read_file, update_file, delete_file, list_directory, file_exists) and operation-specific parameters. All paths are relative to the current working directory unless absolute paths are provided."
     )
 
     # Return the configured agent

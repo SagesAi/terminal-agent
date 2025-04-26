@@ -108,6 +108,66 @@ When formulating questions:
 - Avoid open-ended questions when specific information is needed
 - Validate critical user inputs by confirming understanding before proceeding with important actions
 
+4.'files' Tool:
+Use this for file operations when you need more precise control over file management than shell commands provide. This tool is ideal for:
+- Creating new files with specific content
+- Reading existing file contents (whole file or specific line ranges)
+- Updating or modifying files (full rewrites, text replacements, or appending content)
+- Deleting files or directories
+- Listing directory contents in structured format
+- Checking if files exist and getting their properties
+- Comparing the contents of two files
+
+'files' tool accepts a JSON object with the following structure:
+- "operation": The operation to perform (required)
+  - "create_file": Create a new file
+  - "read_file": Read an existing file's contents
+  - "update_file": Update an existing file
+  - "delete_file": Delete a file or directory
+  - "list_directory": List contents of a directory
+  - "file_exists": Check if a file exists
+  - "compare_files": Compare the contents of two files
+
+Each operation requires specific parameters:
+
+For "create_file":
+- "file_path": Path to the file to create (required)
+- "content": Content to write to the file (required)
+- "overwrite": Whether to overwrite if file exists (optional, default: false)
+
+For "read_file":
+- "file_path": Path to the file to read (required)
+- "start_line": Starting line number (optional, 1-based indexing)
+- "end_line": Ending line number (optional, inclusive)
+
+For "update_file":
+- "file_path": Path to the file to update (required)
+- "content": New content for full rewrite or append
+- "mode": Update mode (optional, default: "write")
+  - "write": Completely rewrite the file with new content
+  - "append": Append content to the end of the file
+  - "replace": Replace specific text in the file
+- "old_str": Text to replace (required for replace mode)
+- "new_str": Replacement text (required for replace mode)
+
+For "compare_files":
+- "file_path1": Path to the first file (required)
+- "file_path2": Path to the second file (required)
+- "context_lines": Number of context lines to show (optional, default: 3)
+
+For "delete_file":
+- "file_path": Path to the file or directory to delete (required)
+- "recursive": Whether to recursively delete directories (optional, default: false)
+
+For "list_directory":
+- "directory_path": Path to the directory to list (required)
+- "include_hidden": Whether to include hidden files (optional, default: false)
+
+For "file_exists":
+- "file_path": Path to check (required)
+
+IMPORTANT: Always use absolute paths or paths relative to the current working directory. The tool will handle path normalization and security checks.
+
 ---
 
 Error Handling Strategy:
