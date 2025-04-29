@@ -22,8 +22,6 @@ Current system information:
 - Version: {version}
 - Architecture: {architecture}
 
-Previous reasoning steps and observations:  
-{history}
 
 Available tools:  
 {tools}

@@ -40,7 +40,7 @@ setup(
     description="An intelligent terminal assistant using ReAct architecture",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/terminalagent/terminal_agent",
+    url="https://github.com/SagesAi/terminal-agent",
     packages=find_packages(),
     classifiers=[
         "Programming Language :: Python :: 3",

@@ -82,12 +82,16 @@ pip install -e .
 
 3. Set up your API key(s)
 ```bash
-# Create a .env file in the current directory
-echo "OPENAI_API_KEY=your_api_key_here" > .env
-# Optional: Add keys for other providers
-echo "DEEPSEEK_API_KEY=your_api_key_here" >> .env
-echo "GOOGLE_API_KEY=your_api_key_here" >> .env
-echo "ANTHROPIC_API_KEY=your_api_key_here" >> .env
+# Copy the example .env file to the config directory
+mkdir -p ~/.terminal_agent
+cp .env.example ~/.terminal_agent/.env
+
+# Edit the .env file to add your API keys
+# For example:
+# OPENAI_API_KEY=your_api_key_here
+# DEEPSEEK_API_KEY=your_api_key_here
+# GOOGLE_API_KEY=your_api_key_here
+# ANTHROPIC_API_KEY=your_api_key_here
 ```
 
 ## Configuration
@@ -114,7 +118,7 @@ Terminal Agent can be configured through environment variables or a `.env` file:
 1. Run Terminal Agent
 ```bash
 # If installed from source:
-python -m terminal_agent
+terminal_agent
 ```
 
 2. Example Usage Scenarios

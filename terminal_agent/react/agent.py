@@ -193,18 +193,13 @@ class ReActAgent:
             self.trace("system", "Operations stopped by user.")
             return
 
-        # Format the prompt with the current context
-
-        prompt = self.template.format(
-            query=self.query,
-            history=self.get_history(),
-            tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
-            **self.system_info
-        )
-
         try:
-            # Get the LLM's response using the simpler method
-            response = self.llm_client.call_llm_with_prompt(prompt)
+            # Create messages list with system prompt and conversation history
+            prompt_messages = [{"role": "system", "content": self.system_prompt}]
+            # Add conversation history as separate messages
+            prompt_messages.extend(self._convert_history_to_messages())
+            # Get the LLM's response using the message-based method
+            response = self.llm_client.call_with_messages(prompt_messages)
             logger.debug(f"Thinking => {response}")
 
             # 记录思考过程但不显示，显示逻辑移到 decide 方法中
@@ -328,7 +323,7 @@ class ReActAgent:
 
         if tool:
             # Execute the tool (only show minimal information to the user)
-            console.print(f"\n[bold cyan]Executing: {tool_name}[/bold cyan]")
+            #console.print(f"\n[bold cyan]Executing: {tool_name}[/bold cyan]")
 
             # Execute the tool
             result = tool.use(query)
@@ -557,6 +552,13 @@ Remember:
         self.messages = []
         self.current_iteration = 0
         reset_stop_flag()
+        
+        # Create the system prompt once
+        self.system_prompt = self.template.format(
+            query=self.query,
+            tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
+            **self.system_info
+        )
 
         # Record the user query
         self.trace(role="user", content=query)
@@ -569,6 +571,18 @@ Remember:
         else:
             return "No response generated."
 
+    def _convert_history_to_messages(self) -> List[Dict[str, str]]:
+        """
+        Converts the internal message history to a list of message dictionaries for LLM API.
+        
+        Returns:
+            List[Dict[str, str]]: List of message dictionaries with 'role' and 'content' keys.
+        """
+        messages = []
+        for message in self.messages:
+            role = "assistant" if message.role == "assistant" else "user"
+            messages.append({"role": role, "content": message.content})
+        return messages
 
 def shell_command_tool(command: str) -> str:
     """

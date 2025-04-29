@@ -173,7 +173,7 @@ class LLMClient:
         try:
             # 检查是否应该停止所有操作
             if should_stop_operations():
-                return "Operation stopped by user, skipping API call."
+                return "操作已被用户停止，跳过API调用。"
             
             # 使用进度条显示
             with Progress() as progress:
@@ -198,6 +198,49 @@ class LLMClient:
             import traceback
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             return f"处理您的请求时遇到错误: {str(e)}"
+    
+    def call_with_messages(self, messages: List[Dict[str, str]]) -> str:
+        """
+        Call the LLM API with a list of messages
+        
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys
+            
+        Returns:
+            str: The model's response text
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+        """
+        try:
+            # Check if operations should be stopped
+            if should_stop_operations():
+                return "Operation stopped by user, skipping API call."
+            
+            # Display thinking progress bar
+            with Progress() as progress:
+                task = progress.add_task("[cyan]Thinking...", total=None)
+                
+                try:
+                    # Call the API
+                    response = self.provider.call_with_messages(messages)
+                    
+                    # Complete the progress bar
+                    progress.update(task, completed=100)
+                    
+                    return response
+                    
+                except Exception as e:
+                    # Complete the progress bar (with error)
+                    progress.update(task, completed=100)
+                    raise e
+                
+        except ConnectionError as e:
+            logger.error(f"Connection error with LLM API: {str(e)}")
+            raise ConnectionError(f"Unable to connect to LLM API: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error calling LLM API: {str(e)}")
+            raise
     
     def extract_commands(self, text: str) -> List[str]:
         """
