@@ -119,7 +119,16 @@ def script_tool(script_request: str) -> str:
                 timeout=timeout
             )
 
-            return f"Command: {command}\nReturn Code: {return_code}\nOutput:\n{output}"
+            # 添加一行日志，记录实际的返回代码
+            logger.debug(f"Script execution return code: {return_code}")
+
+            # 修复 bug：确保在输出中正确反映返回代码
+            if return_code == 0:
+                result = f"Command: {command}\nReturn Code: {return_code} (Success)\nOutput:\n{output}"
+            else:
+                result = f"Command: {command}\nReturn Code: {return_code} (FAILED)\nOutput:\n{output}"
+            
+            return result
 
         # Handle unknown action
         return f"Error: Unknown action '{action}'. Must be 'create', 'execute', or 'create_and_execute'."

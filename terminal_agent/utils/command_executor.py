@@ -15,9 +15,13 @@ from typing import Tuple, Optional, Dict, Any, List
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, BarColumn, TimeRemainingColumn
 from rich.markdown import Markdown
+import logging
 
 # Initialize Rich console
 console = Console()
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # 全局变量，用于跟踪当前正在运行的进程和执行状态
 current_process: Dict[str, Any] = {
@@ -125,92 +129,132 @@ def execute_command(command: str, module_name: str = "Command", check_success: b
     Returns:
         Tuple[int, str, bool]: 返回代码，输出，是否用户主动取消
     """
-    # 显示要执行的命令
-    console.print(f"\n>>> Command to execute: {command}")
-    console.print("(输入 'stop' 可以终止当前命令和所有后续操作)")
-    
-    # 如果需要确认，询问用户是否要执行
-    if need_confirmation and not auto_confirm:
-        user_choice = input("Execute this command? (y/n): ")
+    try:
+        # 显示要执行的命令
+        console.print(f"\n>>> Command to execute: {command}")
+        console.print("(输入 'stop' 可以终止当前命令和所有后续操作)")
         
-        # 如果用户选择不执行，返回错误代码
-        if user_choice.lower() not in ["y", "yes"]:
-            # 设置停止标志，防止后续操作（包括LLM API调用）
-            set_stop_flag()
-            return 1, "Command execution skipped by user", True
-    
-    # 执行命令并显示进度
-    return_code, output, user_stopped = execute_command_single(
-        command, 
-        show_output, 
-        need_confirmation=False, 
-        auto_confirm=auto_confirm,
-        timeout=timeout,
-        env=env  # 传递环境变量
-    )
-    
-    # 初始化建议的修复命令列表
-    suggested_commands = []
-    
-    # 如果没有提供分析器，直接返回结果
-    if not check_success:
-        return return_code, output, user_stopped
-    
-    # 如果用户主动放弃命令，不进行分析，直接返回
-    if user_stopped:
-        return return_code, output, user_stopped
-        
-    # 如果命令执行失败，进行错误分析和修复
-    if return_code != 0:
-        console.print(f"[yellow]{module_name}执行未成功完成[/yellow]")
-        
-        # 分析命令输出，提供错误诊断
-        success, error_message = analyze_command_success(command, output, return_code)
-        
-        # 如果没有提供错误消息，使用默认消息
-        if error_message is None:
-            error_message = "命令执行失败，请查看输出了解详情"
-        
-        # 获取建议的修复命令
-        # suggested_commands = []
-        
-        # 显示分析结果，帮助用户理解错误，并询问是否执行修复命令
-        console.print("[bold yellow]进行问题定位...[/bold yellow]")
-        selected_fix = display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
-        
-        # 处理用户选择
-        if selected_fix == "quit":
-            console.print("[bold red]用户选择退出[/bold red]")
-            return return_code, output, True
-        elif selected_fix:
-            console.print(f"[bold green]执行修复命令: {selected_fix}[/bold green]")
-            fix_return_code, fix_output, fix_user_stopped = execute_command(selected_fix, module_name=module_name, need_confirmation=True)
-            
-            # 分析修复命令的执行结果
-            if fix_return_code == 0:
-                console.print("[bold green]修复命令执行成功[/bold green]")
+        # 如果需要确认，询问用户是否要执行
+        if need_confirmation and not auto_confirm:
+            try:
+                user_choice = input("Execute this command? (y/n): ")
                 
-                # 询问是否重试原命令
-                retry = input("修复可能已解决问题，是否重试原命令? (y/n): ")
-                if retry.lower() in ["y", "yes"]:
-                    console.print(f"[bold cyan]重试命令: {command}[/bold cyan]")
-                    return_code, output, user_stopped = execute_command(command, module_name=module_name, need_confirmation=True)
-                    
-                    # 如果重试成功，更新分析结果
-                    if return_code == 0:
-                        console.print("[bold green]命令执行成功[/bold green]")
-                        success, error_message = analyze_command_success(command, output, return_code)
-                        display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
-            else:
-                console.print("[bold red]修复命令执行失败[/bold red]")
-    else:
-        # 命令成功执行，分析命令输出
-        success, error_message = analyze_command_success(command, output, return_code)
+                # 如果用户选择不执行，返回错误代码
+                if user_choice.lower() not in ["y", "yes"]:
+                    # 设置停止标志，防止后续操作（包括LLM API调用）
+                    set_stop_flag()
+                    return 1, "Command execution skipped by user", True
+            except (KeyboardInterrupt, EOFError) as e:
+                # 处理用户中断（如Ctrl+C或Ctrl+D）
+                console.print("\n[bold red]用户中断了命令确认[/bold red]")
+                set_stop_flag()
+                return 1, f"Command confirmation interrupted by user: {str(e)}", True
         
-        # 显示分析结果
-        display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
-    
-    return return_code, output, user_stopped
+        # 执行命令并显示进度
+        try:
+            return_code, output, user_stopped = execute_command_single(
+                command, 
+                show_output, 
+                need_confirmation=False, 
+                auto_confirm=auto_confirm,
+                timeout=timeout,
+                env=env  # 传递环境变量
+            )
+        except Exception as e:
+            # 捕获执行命令过程中的任何异常
+            error_msg = f"Error executing command: {str(e)}"
+            logger.error(error_msg)
+            console.print(f"[bold red]{error_msg}[/bold red]")
+            return 1, error_msg, False
+        
+        # 初始化建议的修复命令列表
+        suggested_commands = []
+        
+        # 如果没有提供分析器，直接返回结果
+        if not check_success:
+            return return_code, output, user_stopped
+        
+        # 如果用户主动放弃命令，不进行分析，直接返回
+        if user_stopped:
+            return return_code, output, user_stopped
+            
+        # 如果命令执行失败，进行错误分析和修复
+        if return_code != 0:
+            console.print(f"[yellow]{module_name}执行未成功完成[/yellow]")
+            
+            try:
+                # 分析命令输出，提供错误诊断
+                success, error_message = analyze_command_success(command, output, return_code)
+                
+                # 如果没有提供错误消息，使用默认消息
+                if error_message is None:
+                    error_message = "命令执行失败，请查看输出了解详情"
+                
+                # 显示分析结果，帮助用户理解错误，并询问是否执行修复命令
+                console.print("[bold yellow]进行问题定位...[/bold yellow]")
+                selected_fix = display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
+                
+                # 处理用户选择
+                if selected_fix == "quit":
+                    console.print("[bold red]用户选择退出[/bold red]")
+                    return return_code, output, True
+                elif selected_fix:
+                    console.print(f"[bold green]执行修复命令: {selected_fix}[/bold green]")
+                    try:
+                        fix_return_code, fix_output, fix_user_stopped = execute_command(selected_fix, module_name=module_name, need_confirmation=True)
+                        
+                        # 分析修复命令的执行结果
+                        if fix_return_code == 0:
+                            console.print("[bold green]修复命令执行成功[/bold green]")
+                            
+                            try:
+                                # 询问是否重试原命令
+                                retry = input("修复可能已解决问题，是否重试原命令? (y/n): ")
+                                if retry.lower() in ["y", "yes"]:
+                                    console.print(f"[bold cyan]重试命令: {command}[/bold cyan]")
+                                    return_code, output, user_stopped = execute_command(command, module_name=module_name, need_confirmation=True)
+                                    
+                                    # 如果重试成功，更新分析结果
+                                    if return_code == 0:
+                                        console.print("[bold green]命令执行成功[/bold green]")
+                                        success, error_message = analyze_command_success(command, output, return_code)
+                                        display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
+                            except (KeyboardInterrupt, EOFError) as e:
+                                # 处理用户中断
+                                console.print("\n[bold red]用户中断了重试确认[/bold red]")
+                                return return_code, output, True
+                        else:
+                            console.print("[bold red]修复命令执行失败[/bold red]")
+                    except Exception as e:
+                        # 捕获执行修复命令过程中的任何异常
+                        error_msg = f"Error executing fix command: {str(e)}"
+                        logger.error(error_msg)
+                        console.print(f"[bold red]{error_msg}[/bold red]")
+            except Exception as e:
+                # 捕获分析和修复过程中的任何异常
+                error_msg = f"Error during analysis and fix: {str(e)}"
+                logger.error(error_msg)
+                console.print(f"[bold red]{error_msg}[/bold red]")
+        else:
+            try:
+                # 命令成功执行，分析命令输出
+                success, error_message = analyze_command_success(command, output, return_code)
+                
+                # 显示分析结果
+                display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
+            except Exception as e:
+                # 捕获分析过程中的任何异常
+                error_msg = f"Error during success analysis: {str(e)}"
+                logger.error(error_msg)
+                console.print(f"[bold red]{error_msg}[/bold red]")
+        
+        return return_code, output, user_stopped
+    except Exception as e:
+        # 捕获整个函数中的任何未处理异常
+        error_msg = f"Unexpected error in execute_command: {str(e)}"
+        logger.error(error_msg)
+        console.print(f"[bold red]{error_msg}[/bold red]")
+        return 1, error_msg, False
 
 
 def execute_command_single(command: str, show_output: bool, need_confirmation: bool = False, auto_confirm: bool = False, timeout: Optional[int] = None, env: Optional[Dict[str, str]] = None) -> Tuple[int, str, bool]:
@@ -360,11 +404,12 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                 current_process["running"] = False
                 current_process["process"] = None
                 
-                # 将返回代码放入队列
-                output_queue.put(f"\nReturn code: {return_code}")
+                # 将返回代码放入队列，但使用特殊格式，以便后续处理时能够识别并提取
+                output_queue.put(f"__RETURN_CODE__:{return_code}")
             except Exception as e:
                 output_queue.put(f"\nError executing command: {str(e)}")
-                output_queue.put("\nReturn code: 1")  # 设置一个非零的返回代码表示错误
+                return_code = 1  # 设置一个非零的返回代码表示错误
+                output_queue.put(f"__RETURN_CODE__:{return_code}")
         
         # 创建并启动执行线程
         execution_thread = threading.Thread(target=execute_in_thread)
@@ -388,8 +433,8 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                 item = output_queue.get()
                 output_received = True
                 # 检查是否是返回代码
-                if isinstance(item, int) and not return_code_received:
-                    return_code = item
+                if item.startswith("__RETURN_CODE__:"):
+                    return_code = int(item.split(":")[1])
                     return_code_received = True
                 else:
                     output_lines.append(item)
@@ -421,8 +466,8 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
         while not output_queue.empty():
             item = output_queue.get()
             # 检查是否是返回代码
-            if isinstance(item, int) and not return_code_received:
-                return_code = item
+            if item.startswith("__RETURN_CODE__:"):
+                return_code = int(item.split(":")[1])
                 return_code_received = True
             else:
                 output_lines.append(item)

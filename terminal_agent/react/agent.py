@@ -9,13 +9,18 @@ reasoning-action-observation loop to solve tasks using available tools.
 import json
 import logging
 import os
+import re
+import sqlite3
 import sys
+import time
 from enum import Enum, auto
 from typing import Dict, List, Callable, Union, Optional, Any, Tuple
-
+from datetime import datetime
 from rich.console import Console
-from rich.panel import Panel
 from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from rich.table import Table
 from pydantic import BaseModel, Field
 
 from terminal_agent.utils.llm_client import LLMClient
@@ -110,7 +115,10 @@ class ReActAgent:
                  system_info: Dict[str, Any],
                  command_analyzer: Optional[CommandAnalyzer] = None,
                  max_iterations: int = DEFAULT_MAX_ITERATIONS,
-                 template_path: str = PROMPT_TEMPLATE_PATH):
+                 template_path: str = PROMPT_TEMPLATE_PATH,
+                 memory_enabled: bool = False,
+                 memory_db: Optional[Any] = None,
+                 user_id: str = "default_user"):
         """
         Initializes the ReAct Agent with necessary components.
 
@@ -120,6 +128,9 @@ class ReActAgent:
             command_analyzer (CommandAnalyzer, optional): Analyzer for command safety.
             max_iterations (int, optional): Maximum number of reasoning iterations.
             template_path (str, optional): Path to the prompt template file.
+            memory_enabled (bool, optional): Whether to enable memory system.
+            memory_db (Optional[Any], optional): Memory database instance.
+            user_id (str, optional): User ID for memory system.
         """
         self.llm_client = llm_client
         self.system_info = system_info
@@ -130,6 +141,33 @@ class ReActAgent:
         self.max_iterations = max_iterations
         self.current_iteration = 0
         self.template = self._load_template(template_path)
+        
+        # Memory system initialization
+        self.memory_enabled = memory_enabled
+        self.user_id = user_id
+        self.session_id = None
+        
+        if memory_enabled:
+            try:
+                from terminal_agent.memory.memory_database import MemoryDatabase
+                from terminal_agent.memory.context_manager import ContextManager
+                from terminal_agent.memory.session_manager import SessionManager
+                
+                # Initialize memory components
+                if memory_db is None:
+                    self.memory_db = MemoryDatabase()
+                else:
+                    self.memory_db = memory_db
+                    
+                self.context_manager = ContextManager(self.memory_db, llm_client)
+                self.session_manager = SessionManager(self.memory_db, self.context_manager)
+                logger.info("Memory system initialized")
+            except ImportError as e:
+                logger.warning(f"Failed to import memory modules: {e}. Memory system disabled.")
+                self.memory_enabled = False
+                self.memory_db = None
+                self.context_manager = None
+                self.session_manager = None
 
         # Create templates directory if it doesn't exist
         os.makedirs(os.path.dirname(template_path), exist_ok=True)
@@ -137,8 +175,7 @@ class ReActAgent:
         # Create default template if it doesn't exist
         if not os.path.exists(template_path):
             self._create_default_template(template_path)
-
-        logger.info(f"Created default template at {template_path}")
+            logger.info(f"Created default template at {template_path}")
 
     def register_tool(self, name: ToolName, func: Callable[[str], str], description: str = "") -> None:
         """
@@ -151,19 +188,43 @@ class ReActAgent:
         """
         self.tools[name] = Tool(name, func, description)
 
-    def trace(self, role: str, content: str, display: bool = False) -> None:
+    def trace(self, role: str, content: Any, display: bool = True) -> None:
         """
         Logs the message with the specified role and content.
 
         Args:
             role (str): The role of the message sender.
-            content (str): The content of the message.
+            content (Any): The content of the message, will be converted to string.
             display (bool): Whether to display the message. Defaults to True.
         """
-        logger.info(f"{role}: {content}")
-        self.messages.append(Message(role=role, content=content))
+        # 确保 content 是字符串
+        if not isinstance(content, str):
+            content = str(content)
+            
+        message = Message(role=role, content=content)
+        self.messages.append(message)
+        
+        # Store message in memory system if enabled
+        if self.memory_enabled and self.session_id and role in ["user", "assistant", "system"]:
+            try:
+                # 不存储系统观察信息
+                if role == "system" and content.startswith("Observation from"):
+                    pass  # 跳过存储观察信息
+                else:
+                    message_type = "thinking" if "Thought:" in content and role == "assistant" else "message"
+                    self.session_manager.add_message(self.session_id, role, content, message_type)
+            except Exception as e:
+                logger.error(f"Error storing message in memory: {e}")
+
         if display:
-            console.print(f"[bold cyan]{role}[/bold cyan]: {content}")
+            if role == "user":
+                console.print(f"\n[bold green]User:[/bold green] {content}")
+            elif role == "assistant":
+                console.print(f"\n[bold blue]Assistant:[/bold blue] {content}")
+            elif role == "system":
+                console.print(f"\n[bold yellow]System:[/bold yellow] {content}")
+            else:
+                console.print(f"\n[bold]{role}:[/bold] {content}")
 
     def get_history(self) -> str:
         """
@@ -194,10 +255,13 @@ class ReActAgent:
             return
 
         try:
-            # Create messages list with system prompt and conversation history
-            prompt_messages = [{"role": "system", "content": self.system_prompt}]
-            # Add conversation history as separate messages
+            # 复制基本提示消息列表，避免修改原始列表
+            prompt_messages = list(self.base_prompt_messages)
+            
+            # 添加当前任务的本地消息历史
             prompt_messages.extend(self._convert_history_to_messages())
+            
+            logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {len(self.messages)} local messages")
             # Get the LLM's response using the message-based method
             response = self.llm_client.call_with_messages(prompt_messages)
             logger.debug(f"Thinking => {response}")
@@ -227,12 +291,8 @@ class ReActAgent:
             parsed_response = self._parse_json_response(response)
 
             # 显示思考过程，实现信息透明
-            if "thought" in parsed_response:
+            if "thought" in parsed_response and "final_answer" not in parsed_response:
                 thought = parsed_response["thought"]
-
-                # 使用 Rich 的 Panel 和 Markdown 功能美化思考过程显示
-                from rich.panel import Panel
-                from rich.markdown import Markdown
 
                 # 直接使用原始思考内容，不进行额外处理
                 formatted_thought = thought
@@ -243,16 +303,13 @@ class ReActAgent:
                 # 创建面板
                 panel = Panel(
                     md,
-                    title="[bold blue]💭 Thinking Process[/bold blue]",
+                    title="[bold blue]Thinking[/bold blue]",
                     border_style="blue",
-                    padding=(1, 2),
-                    expand=False
+                    padding=(1, 2)
                 )
-
+                
                 # 显示面板
-                console.print("\n")
                 console.print(panel)
-                console.print("\n")
 
             if "action" in parsed_response:
                 action = parsed_response["action"]
@@ -295,6 +352,7 @@ class ReActAgent:
                 ))
 
                 # Record the answer in the trace but don't print it again
+                
                 self.trace("assistant", f"Final Answer: {answer}", display=False)
 
             else:
@@ -303,7 +361,7 @@ class ReActAgent:
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse response as JSON: {e}")
-            self.trace("system", "Error parsing response. Trying again.")
+            self.trace("system", f"Error parsing response: {str(e)}. Trying again.")
             self.think()
 
         except Exception as e:
@@ -319,7 +377,14 @@ class ReActAgent:
             tool_name (ToolName): The tool to be used.
             query (str): The query for the tool.
         """
+        # Get the tool
         tool = self.tools.get(tool_name)
+        
+        # Special handling for NONE tool (final answer)
+        if tool_name == ToolName.NONE:
+            # Record the final answer
+            self.trace("assistant", query, display=False)
+            return
 
         if tool:
             # Execute the tool (only show minimal information to the user)
@@ -327,29 +392,62 @@ class ReActAgent:
 
             # Execute the tool
             result = tool.use(query)
-
+            
             # Check if this is an abort request from the message tool
             if tool_name == ToolName.MESSAGE and result == "__ABORT_TASK__":
                 console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
                 self.trace("system", "Task aborted by user", display=False)
                 return
+            
+            
+            # Store tool call in memory system if enabled
+            if self.memory_enabled and self.session_id:
+                try:
+                    # Get the last message ID (should be the assistant's thinking message)
+                    last_message = None
+                    conn = self.memory_db.conn
+                    cursor = conn.execute('''
+                    SELECT id FROM messages
+                    WHERE session_id = ? AND role = 'assistant'
+                    ORDER BY created_at DESC LIMIT 1
+                    ''', (self.session_id,))
+                    row = cursor.fetchone()
+                    if row:
+                        last_message_id = row['id']
+                        # Record the tool call
+                        self.session_manager.add_tool_call(
+                            last_message_id, 
+                            str(tool_name), 
+                            query, 
+                            str(result)
+                        )
+                except Exception as e:
+                    logger.error(f"Error recording tool call in memory: {e}")
 
-            # 智能截断长输出，防止超出模型的输入 token 限制
-            truncated_result = self._truncate_long_output(result)
+            # Truncate long outputs to prevent exceeding context limits
+            if isinstance(result, str) and len(result) > 6000:
+                truncated_result = self._truncate_long_output(result)
+            else:
+                truncated_result = result
 
-            # Format the observation
-            observation = f"Observation from {tool_name}: {truncated_result}"
+            # 特殊处理 MESSAGE 工具，将其结果作为用户输入
+            if tool_name == ToolName.MESSAGE:
+                # 记录用户输入
+                logger.debug(f"User input: {truncated_result}")
+                self.trace("user", truncated_result, display=False)
+            else:
+                # 对于其他工具，格式化为系统观察结果
+                observation = f"Observation from {tool_name}: {truncated_result}"
+                # 记录观察结果但不显示完整详情
+                logger.debug(observation)
+                self.trace("system", observation, display=False)
 
-            # Record the observation but don't display the full details
-            logger.debug(observation)
-            self.trace("system", observation, display=False)
-
-            # Continue the reasoning process
+            # Continue thinking
             self.think()
-
         else:
-            logger.error(f"No tool registered for: {tool_name}")
-            self.trace("system", f"Error: Tool {tool_name} not found", display=True)
+            # Tool not found
+            error_message = f"Tool '{tool_name}' not found. Available tools: {', '.join([str(t) for t in self.tools.keys()])}"
+            self.trace("system", f"Error: {error_message}")
             self.think()
 
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
@@ -367,18 +465,60 @@ class ReActAgent:
         """
         # Clean up the response to extract JSON
         cleaned_response = response.strip()
-
-        # Try to find JSON content in the response
-        json_start = cleaned_response.find('{')
-        json_end = cleaned_response.rfind('}') + 1
-
-        if json_start >= 0 and json_end > json_start:
-            json_content = cleaned_response[json_start:json_end]
-            return json.loads(json_content)
-        else:
-            # If no JSON is found, try to parse the whole response
+        
+        # 使用基于栈的算法提取最长的有效 JSON 对象
+        stack = []
+        start_indices = []
+        in_string = False
+        escape_next = False
+        candidates = []
+        
+        for i, char in enumerate(cleaned_response):
+            # 处理转义字符
+            if escape_next:
+                escape_next = False
+                continue
+            
+            if char == '\\':
+                escape_next = True
+                continue
+            
+            # 处理字符串
+            if char == '"' and not escape_next:
+                in_string = not in_string
+                continue
+            
+            if in_string:
+                continue
+            
+            # 处理括号
+            if char == '{':
+                stack.append(char)
+                if len(stack) == 1:
+                    start_indices.append(i)
+            elif char == '}' and stack and stack[-1] == '{':
+                stack.pop()
+                if not stack:
+                    start = start_indices.pop()
+                    candidates.append(cleaned_response[start:i+1])
+        
+        # 按长度降序排列，优先尝试更长的 JSON 对象
+        candidates.sort(key=len, reverse=True)
+        
+        # 尝试解析每个候选 JSON 对象
+        for json_str in candidates:
+            try:
+                return json.loads(json_str)
+            except json.JSONDecodeError:
+                continue
+        
+        # 如果没有找到有效的 JSON 对象，抛出异常
+        try:
             return json.loads(cleaned_response)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid response format: unable to parse as JSON. No valid JSON objects found in the response.") from e
 
+        
     def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
         """
         Intelligently truncate long outputs to prevent exceeding the model's input token limit.
@@ -553,12 +693,39 @@ Remember:
         self.current_iteration = 0
         reset_stop_flag()
         
+        # 初始化基本提示消息列表，在每次推理中复用
+        self.base_prompt_messages = []
+        
+        # Initialize or get session if memory is enabled
+        if self.memory_enabled:
+            try:
+                self.session_id = self.session_manager.get_or_create_session(self.user_id)
+                logger.info(f"Using session {self.session_id} for user {self.user_id}")
+                
+                # 一次性加载内存消息
+                try:
+                    # 从内存中获取消息用于 LLM 上下文
+                    # (内部已经调用了 check_and_summarize_if_needed)
+                    memory_messages = self.session_manager.get_messages_for_llm(self.user_id)
+                    if memory_messages:
+                        logger.debug(f"Loaded {len(memory_messages)} messages from memory")
+                        # 将内存消息添加到基本提示消息列表中
+                        self.base_prompt_messages.extend(memory_messages)
+                except Exception as e:
+                    logger.error(f"Error loading memory messages: {e}")
+            except Exception as e:
+                logger.error(f"Error initializing memory session: {e}")
+                self.session_id = None
+        
         # Create the system prompt once
         self.system_prompt = self.template.format(
             query=self.query,
             tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
             **self.system_info
         )
+        
+        # 将系统提示添加到基本提示消息列表中
+        self.base_prompt_messages.insert(0, {"role": "system", "content": self.system_prompt})
 
         # Record the user query
         self.trace(role="user", content=query)
@@ -580,7 +747,12 @@ Remember:
         """
         messages = []
         for message in self.messages:
-            role = "assistant" if message.role == "assistant" else "user"
+            # 保留原有的角色信息，包括 system、assistant 和 user
+            if message.role in ["system", "assistant", "user"]:
+                role = message.role
+            else:
+                # 对于其他未知角色，默认使用 user
+                role = "user"
             messages.append({"role": role, "content": message.content})
         return messages
 
@@ -624,18 +796,26 @@ def message_tool(query: str) -> str:
         str: The user's answer.
     """
     try:
-        # Use the query directly as the question
-        question = query
-        
-        # Try to parse JSON format (if it's a JSON string)
-        if query.startswith('{') and query.endswith('}'):
-            try:
-                query_data = json.loads(query)
-                if "question" in query_data:
-                    question = query_data["question"]
-            except json.JSONDecodeError:
-                # If parsing fails, still use the original query
-                pass
+        # 处理字典类型的输入
+        if isinstance(query, dict):
+            if "question" in query:
+                question = query["question"]
+            else:
+                # 如果字典中没有 question 字段，尝试将整个字典转换为字符串
+                question = str(query)
+        else:
+            # 处理字符串类型的输入
+            question = query
+            
+            # 尝试解析 JSON 格式（如果是 JSON 字符串）
+            if isinstance(query, str) and query.startswith('{') and query.endswith('}'):
+                try:
+                    query_data = json.loads(query)
+                    if "question" in query_data:
+                        question = query_data["question"]
+                except json.JSONDecodeError:
+                    # 如果解析失败，仍使用原始查询
+                    pass
             
         # Display the question to the user
         console.print()
@@ -655,7 +835,7 @@ def message_tool(query: str) -> str:
         
         # Handle special keywords
         if user_response.lower() in ["quit", "exit", "stop"]:
-            console.print("[bold yellow]User requested to abort current task[/bold yellow]")
+            console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
             return "__ABORT_TASK__"
         
         # Return the user's answer
@@ -667,7 +847,10 @@ def message_tool(query: str) -> str:
 
 def create_react_agent(llm_client: LLMClient,
                       system_info: Dict[str, Any],
-                      command_analyzer: Optional[CommandAnalyzer] = None) -> ReActAgent:
+                      command_analyzer: Optional[CommandAnalyzer] = None,
+                      memory_enabled: bool = False,
+                      memory_db: Optional[Any] = None,
+                      user_id: str = "default_user") -> ReActAgent:
     """
     Creates and configures a ReAct agent with default tools.
 
@@ -675,12 +858,15 @@ def create_react_agent(llm_client: LLMClient,
         llm_client (LLMClient): The LLM client for API interactions.
         system_info (Dict[str, Any]): Dictionary containing system information.
         command_analyzer (CommandAnalyzer, optional): Analyzer for command safety.
+        memory_enabled (bool, optional): Whether to enable memory system.
+        memory_db (Optional[Any], optional): Memory database instance.
+        user_id (str, optional): User ID for memory system.
 
     Returns:
         ReActAgent: A configured ReAct agent.
     """
     # Create the agent
-    agent = ReActAgent(llm_client, system_info, command_analyzer)
+    agent = ReActAgent(llm_client, system_info, command_analyzer, memory_enabled=memory_enabled, memory_db=memory_db, user_id=user_id)
 
     # Register the shell command tool
     agent.register_tool(
@@ -693,7 +879,7 @@ def create_react_agent(llm_client: LLMClient,
     agent.register_tool(
         ToolName.SCRIPT,
         script_tool,
-        "Create and execute scripts in various languages. Send a JSON request with 'action' (create/execute/create_and_execute), 'filename', 'content' (for creation), 'interpreter' (optional, e.g., python/bash/node), 'args' (optional, list of arguments to pass to the script), 'env_vars' (optional, dictionary of environment variables to set), and 'timeout' (optional, maximum execution time in seconds)."
+        "Create and execute scripts in various languages. Send a JSON request with 'action' (create/execute/create_and_execute), 'filename', 'content' (for creation), 'interpreter' (optional, e.g., python3/bash/node), 'args' (optional, list of arguments to pass to the script), 'env_vars' (optional, dictionary of environment variables to set), and 'timeout' (optional, maximum execution time in seconds)."
     )
 
     # Register the message tool

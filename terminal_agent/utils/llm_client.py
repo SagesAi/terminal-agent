@@ -224,6 +224,7 @@ class LLMClient:
                 try:
                     # Call the API
                     response = self.provider.call_with_messages(messages)
+            
                     
                     # Complete the progress bar
                     progress.update(task, completed=100)
