@@ -188,7 +188,7 @@ class ReActAgent:
         """
         self.tools[name] = Tool(name, func, description)
 
-    def trace(self, role: str, content: Any, display: bool = True) -> None:
+    def trace(self, role: str, content: Any, display: bool = False) -> None:
         """
         Logs the message with the specified role and content.
 
@@ -395,7 +395,6 @@ class ReActAgent:
             
             # Check if this is an abort request from the message tool
             if tool_name == ToolName.MESSAGE and result == "__ABORT_TASK__":
-                console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
                 self.trace("system", "Task aborted by user", display=False)
                 return
             

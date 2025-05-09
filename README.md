@@ -118,7 +118,7 @@ Terminal Agent can be configured through environment variables or a `.env` file:
 1. Run Terminal Agent
 ```bash
 # If installed from source:
-terminal_agent
+terminal-agent
 ```
 
 2. Example Usage Scenarios
