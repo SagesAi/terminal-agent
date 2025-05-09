@@ -192,7 +192,7 @@ class SessionManager:
             for msg in messages:
                 llm_message = {
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
                 }
                 llm_messages.append(llm_message)
                 
