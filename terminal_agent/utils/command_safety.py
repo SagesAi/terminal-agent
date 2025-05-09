@@ -100,7 +100,33 @@ DANGEROUS_COMMANDS = {
         "pattern": r"\bsu\b",
         "description": "Switching user, potentially to root",
         "severity": "medium"
-    }
+    }, 
+    # system power commands
+    "reboot": {
+        "pattern": r"\breboot\b",
+        "description": "Restart the system, which will interrupt all running programs and services",
+        "severity": "high"
+    },
+    "shutdown": {
+        "pattern": r"\bshutdown\b",
+        "description": "Shut down the system, which will interrupt all running programs and services",
+        "severity": "high"
+    },
+    "halt": {
+        "pattern": r"\bhalt\b",
+        "description": "Stop the system, similar to shutdown",
+        "severity": "high"
+    },
+    "poweroff": {
+        "pattern": r"\bpoweroff\b",
+        "description": "Turn off system power",
+        "severity": "high"
+    },
+    "init": {
+        "pattern": r"\binit\s+[06]\b",
+        "description": "Change system runlevel to shutdown(0) or restart(6)",
+        "severity": "high"
+    },
 }
 
 def check_command_safety(command: str) -> Tuple[bool, List[Dict[str, str]]]:
