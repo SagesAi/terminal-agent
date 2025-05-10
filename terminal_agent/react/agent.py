@@ -29,11 +29,12 @@ from terminal_agent.utils.command_analyzer import CommandAnalyzer
 from terminal_agent.utils.logging_config import get_logger
 from terminal_agent.react.tools.files_tool import files_tool
 from terminal_agent.react.tools.script_tool import script_tool
+from terminal_agent.react.tools.web_page import web_page_tool
 
 # Initialize Rich console
 console = Console()
 
-# 获取日志记录器
+# Get logger
 logger = get_logger(__name__)
 
 # Type alias for observations
@@ -51,8 +52,9 @@ class ToolName(Enum):
     SHELL = auto()
     SEARCH = auto()
     SCRIPT = auto()
-    MESSAGE = auto()  # 新增消息工具，用于向用户提问
-    FILES = auto()    # 新增文件操作工具，用于文件管理
+    MESSAGE = auto()  # Message tool for asking questions to the user
+    FILES = auto()    # File operations tool for file management
+    WEB_PAGE = auto() # Web page tool for retrieving web content
     NONE = auto()
 
     def __str__(self) -> str:
@@ -692,7 +694,7 @@ Remember:
         self.current_iteration = 0
         reset_stop_flag()
         
-        # 初始化基本提示消息列表，在每次推理中复用
+        # Initialize base prompt message list for reuse in each reasoning step
         self.base_prompt_messages = []
         
         # Initialize or get session if memory is enabled
@@ -701,10 +703,10 @@ Remember:
                 self.session_id = self.session_manager.get_or_create_session(self.user_id)
                 logger.info(f"Using session {self.session_id} for user {self.user_id}")
                 
-                # 一次性加载内存消息
+                # Load memory messages once
                 try:
-                    # 从内存中获取消息用于 LLM 上下文
-                    # (内部已经调用了 check_and_summarize_if_needed)
+                    # Get messages from memory for LLM context
+                    # (check_and_summarize_if_needed has already been called internally)
                     memory_messages = self.session_manager.get_messages_for_llm(self.user_id)
                     if memory_messages:
                         logger.debug(f"Loaded {len(memory_messages)} messages from memory")
@@ -723,7 +725,7 @@ Remember:
             **self.system_info
         )
         
-        # 将系统提示添加到基本提示消息列表中
+        # Add system prompt to the base prompt message list
         self.base_prompt_messages.insert(0, {"role": "system", "content": self.system_prompt})
 
         # Record the user query
@@ -893,6 +895,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.FILES,
         files_tool,
         "Perform file operations including creating, reading, updating, and deleting files, as well as listing directory contents. Send a JSON request with 'operation' (create_file, read_file, update_file, delete_file, list_directory, file_exists) and operation-specific parameters. All paths are relative to the current working directory unless absolute paths are provided."
+    )
+    
+    # Register the web page tool
+    agent.register_tool(
+        ToolName.WEB_PAGE,
+        web_page_tool,
+        "Crawl a web page and extract its content in a readable format. Used to retrieve information from web pages to assist in completing tasks. "
     )
 
     # Return the configured agent

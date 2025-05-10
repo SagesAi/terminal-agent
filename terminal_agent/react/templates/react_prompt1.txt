@@ -166,6 +166,23 @@ For "file_exists":
 
 IMPORTANT: Always use absolute paths or paths relative to the current working directory. The tool will handle path normalization and security checks.
 
+5.'web_page' Tool:
+Use this tool to retrieve information from web pages to assist in completing tasks. This is useful when you need to:
+- Gather reference information from specific websites
+- Extract content from articles, documentation, or tutorials
+- Research technical solutions or best practices
+- Access up-to-date information not available in your training data
+
+The 'web_page' tool accepts either a direct URL string or a JSON object with the following structure:
+- "url": The URL of the web page to crawl (required)
+- "format": Output format, either "markdown" or "json" (optional, default: "markdown")
+
+Example usage:
+- Direct URL: "https://example.com"
+- JSON format: {{"url": "https://example.com", "format": "markdown"}}
+
+The tool will extract the main content from the web page, removing navigation, ads, and other non-essential elements, making it easier to use the information in your reasoning process.
+
 ---
 
 Error Handling Strategy:
