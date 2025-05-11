@@ -209,12 +209,8 @@ class ReActAgent:
         # Store message in memory system if enabled
         if self.memory_enabled and self.session_id and role in ["user", "assistant", "system"]:
             try:
-                # 不存储系统观察信息
-                if role == "system" and content.startswith("Observation from"):
-                    pass  # 跳过存储观察信息
-                else:
-                    message_type = "thinking" if "Thought:" in content and role == "assistant" else "message"
-                    self.session_manager.add_message(self.session_id, role, content, message_type)
+                message_type = "thinking" if "Thought:" in content and role == "assistant" else "message"
+                self.session_manager.add_message(self.session_id, role, content, message_type)
             except Exception as e:
                 logger.error(f"Error storing message in memory: {e}")
 
@@ -253,7 +249,7 @@ class ReActAgent:
         # Check if operations should be stopped
         if should_stop_operations():
             logger.warning("Operations stopped by user.")
-            self.trace("system", "Operations stopped by user.")
+            self.trace("user", "Operations stopped by user.")
             return
 
         try:
@@ -276,7 +272,7 @@ class ReActAgent:
         except ConnectionError as e:
             # 处理连接错误，直接退出 React loop
             logger.error(f"Connection error in ReActAgent.think: {str(e)}")
-            self.trace("system", f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {str(e)}", display=True)
+            self.trace("user", f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {str(e)}", display=True)
             # 不再调用 self.think()，直接退出循环
             console.print("[bold red]Exiting ReAct loop due to connection error.[/bold red]")
             return
@@ -327,7 +323,7 @@ class ReActAgent:
                         tool_name = ToolName[tool_name_str]
                     except KeyError:
                         logger.error(f"Unknown tool name: {action['name']}")
-                        self.trace("system", f"Error: Unknown tool name '{action['name']}'")
+                        self.trace("user", f"Error: Unknown tool name '{action['name']}'")
                         self.think()
                         return
 
@@ -363,12 +359,12 @@ class ReActAgent:
 
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse response as JSON: {e}")
-            self.trace("system", f"Error parsing response: {str(e)}. Trying again.")
+            self.trace("user", f"Error parsing response: {str(e)}. Trying again.")
             self.think()
 
         except Exception as e:
             logger.error(f"Error processing response: {e}")
-            self.trace("system", f"Error: {str(e)}. Trying again.")
+            self.trace("user", f"Error: {str(e)}. Trying again.")
             self.think()
 
     def act(self, tool_name: ToolName, query: str) -> None:
@@ -397,7 +393,7 @@ class ReActAgent:
             
             # Check if this is an abort request from the message tool
             if tool_name == ToolName.MESSAGE and result == "__ABORT_TASK__":
-                self.trace("system", "Task aborted by user", display=False)
+                self.trace("user", "Task aborted by user", display=False)
                 return
             
             
@@ -441,14 +437,14 @@ class ReActAgent:
                 observation = f"Observation from {tool_name}: {truncated_result}"
                 # 记录观察结果但不显示完整详情
                 logger.debug(observation)
-                self.trace("system", observation, display=False)
+                self.trace("user", observation, display=False)
 
             # Continue thinking
             self.think()
         else:
             # Tool not found
             error_message = f"Tool '{tool_name}' not found. Available tools: {', '.join([str(t) for t in self.tools.keys()])}"
-            self.trace("system", f"Error: {error_message}")
+            self.trace("user", f"Error: {error_message}")
             self.think()
 
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
@@ -504,7 +500,7 @@ class ReActAgent:
                     candidates.append(cleaned_response[start:i+1])
         
         # 按长度降序排列，优先尝试更长的 JSON 对象
-        candidates.sort(key=len, reverse=True)
+        #candidates.sort(key=len, reverse=True)
         
         # 尝试解析每个候选 JSON 对象
         for json_str in candidates:
@@ -535,9 +531,9 @@ class ReActAgent:
         Returns:
             str: The processed text
         """
-        # Roughly estimate token count (approximately 4 characters per token for English)
+            # Roughly estimate token count (approximately 4 characters per token for English)
         estimated_tokens = len(text) / 4
-
+            
         if estimated_tokens <= max_tokens:
             return text
 
@@ -748,12 +744,7 @@ Remember:
         """
         messages = []
         for message in self.messages:
-            # 保留原有的角色信息，包括 system、assistant 和 user
-            if message.role in ["system", "assistant", "user"]:
-                role = message.role
-            else:
-                # 对于其他未知角色，默认使用 user
-                role = "user"
+            role = "assistant" if message.role == "assistant" else "user"
             messages.append({"role": role, "content": message.content})
         return messages
 

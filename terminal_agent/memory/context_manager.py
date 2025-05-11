@@ -45,13 +45,13 @@ class ContextManager:
         Returns:
             Estimated token count
         """
-        # Simple estimation: each English word is about 1.3 tokens
+        # Simple estimation: each English word is about 0.3 tokens
         total_tokens = 0
         for msg in messages:
             content = msg.get("content", "")
             if isinstance(content, dict):
                 content = json.dumps(content)
-            total_tokens += len(str(content).split()) * 1.3
+            total_tokens += len(str(content).split()) * 0.3
         return int(total_tokens)
     
     def should_summarize(self, messages: List[Dict]) -> bool:
