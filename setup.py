@@ -29,7 +29,14 @@ requirements = [
 extras_require = {
     "gemini": ["google-generativeai>=0.3.0"],
     "claude": ["anthropic>=0.5.0"],
-    "all": ["google-generativeai>=0.3.0", "anthropic>=0.5.0"],
+    "web": ["requests>=2.28.0", "markdownify>=0.11.6", "readabilipy>=0.2.0"],
+    "all": [
+        "google-generativeai>=0.3.0", 
+        "anthropic>=0.5.0",
+        "requests>=2.28.0", 
+        "markdownify>=0.11.6", 
+        "readabilipy>=0.2.0"
+    ],
 }
 
 setup(
