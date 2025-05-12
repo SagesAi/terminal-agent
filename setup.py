@@ -23,21 +23,17 @@ requirements = [
     "pyfiglet>=1.0.2",
     "typer>=0.9.0",
     "prompt-toolkit>=3.0.43",
+    # 网页爬取工具依赖
+    "requests>=2.28.0",
+    "markdownify>=0.11.6",
+    "readabilipy>=0.2.0",
+    # 其他 LLM 提供商支持
+    "google-generativeai>=0.3.0",  # Gemini 支持
+    "anthropic>=0.5.0",  # Claude 支持
 ]
 
-# 可选依赖
-extras_require = {
-    "gemini": ["google-generativeai>=0.3.0"],
-    "claude": ["anthropic>=0.5.0"],
-    "web": ["requests>=2.28.0", "markdownify>=0.11.6", "readabilipy>=0.2.0"],
-    "all": [
-        "google-generativeai>=0.3.0", 
-        "anthropic>=0.5.0",
-        "requests>=2.28.0", 
-        "markdownify>=0.11.6", 
-        "readabilipy>=0.2.0"
-    ],
-}
+# 可选依赖 - 已经全部移到核心依赖中
+extras_require = {}
 
 setup(
     name="terminal-agent",
