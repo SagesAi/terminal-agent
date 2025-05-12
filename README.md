@@ -92,6 +92,7 @@ cp .env.example ~/.terminal_agent/.env
 # DEEPSEEK_API_KEY=your_api_key_here
 # GOOGLE_API_KEY=your_api_key_here
 # ANTHROPIC_API_KEY=your_api_key_here
+# JINA_API_KEY=your_api_key_here  # For web crawling functionality
 ```
 
 ## Configuration
@@ -104,6 +105,7 @@ Terminal Agent can be configured through environment variables or a `.env` file:
 | `DEEPSEEK_API_KEY` | DeepSeek API key | None |
 | `GOOGLE_API_KEY` | Google API key for Gemini | None |
 | `ANTHROPIC_API_KEY` | Anthropic API key for Claude | None |
+| `JINA_API_KEY` | Jina AI API key for web crawling | None |
 | `TERMINAL_AGENT_PROVIDER` | Default LLM provider | `openai` |
 | `TERMINAL_AGENT_MODEL` | Default model for the selected provider | Provider-specific |
 | `TERMINAL_AGENT_API_BASE` | Custom API base URL | Provider-specific |
