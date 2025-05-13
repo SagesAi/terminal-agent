@@ -13,6 +13,7 @@ import os
 import queue
 from typing import Tuple, Optional, Dict, Any, List
 from rich.console import Console
+from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, BarColumn, TimeRemainingColumn
 from rich.markdown import Markdown
 import logging
@@ -440,7 +441,7 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                     output_lines.append(item)
                     # 如果需要显示输出，则打印
                     if show_output:
-                        console.print(item, end="")
+                        console.print(Text(item), end="")
             
             # 更新进度条 - 使用时间和输出作为进度指示
             elapsed_time = time.time() - start_time
@@ -473,7 +474,7 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
                 output_lines.append(item)
                 # 如果需要显示输出，则打印
                 if show_output:
-                    console.print(item, end="")
+                    console.print(Text(item), end="")
         
         # 返回结果
         return return_code, "".join(output_lines), False
