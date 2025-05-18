@@ -17,6 +17,7 @@ from rich.text import Text
 from rich.progress import Progress, SpinnerColumn, BarColumn, TimeRemainingColumn
 from rich.markdown import Markdown
 import logging
+from terminal_agent.utils.command_forwarder import remote_aware
 
 # Initialize Rich console
 console = Console()
@@ -258,7 +259,8 @@ def execute_command(command: str, module_name: str = "Command", check_success: b
         return 1, error_msg, False
 
 
-def execute_command_single(command: str, show_output: bool, need_confirmation: bool = False, auto_confirm: bool = False, timeout: Optional[int] = None, env: Optional[Dict[str, str]] = None) -> Tuple[int, str, bool]:
+@remote_aware
+def execute_command_single(command: str, show_output: bool, need_confirmation: bool = True, auto_confirm: bool = False, timeout: int = 300, env: Optional[Dict[str, str]] = None) -> Tuple[int, str, bool]:
     """
     执行命令并返回结果
     

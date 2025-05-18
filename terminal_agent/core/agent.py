@@ -11,6 +11,7 @@ from rich.console import Console
 
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.system_info import get_system_info
+from terminal_agent.utils.command_forwarder import forwarder
 from terminal_agent.modules.react_module import ReActModule
 
 # Initialize Rich console
@@ -41,6 +42,12 @@ class TerminalAgent:
         
         # Get system information
         self.system_info = get_system_info()
+        
+        # Add remote execution information to system info if enabled
+        if forwarder.remote_enabled:
+            self.system_info["remote_execution"] = True
+            self.system_info["remote_host"] = forwarder.host
+            self.system_info["remote_user"] = forwarder.user
         
         # Initialize conversation history
         self.conversation_history = []

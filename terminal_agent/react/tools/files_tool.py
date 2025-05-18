@@ -2,13 +2,17 @@
 """
 File operations tool for Terminal Agent.
 Provides a set of functions for file management and operations.
+Supports both local and remote file operations.
 """
 
 import os
 import json
 import logging
-from typing import Dict, List, Union, Optional
+from typing import Dict, List, Union, Optional, Tuple
 from pathlib import Path
+
+# Import command forwarder and decorators for remote file operations
+from terminal_agent.utils.command_forwarder import forwarder, remote_file_operation
 
 from rich.console import Console
 from rich.panel import Panel
@@ -122,6 +126,7 @@ def files_tool(query: str) -> str:
         logger.error(f"Error in files_tool: {e}")
         return f"Error in files operation: {str(e)}"
 
+@remote_file_operation
 def create_file(params: Dict) -> str:
     """
     Create a new file with the specified content.
@@ -150,23 +155,25 @@ def create_file(params: Dict) -> str:
         if should_exclude_file(file_path):
             return f"Error: Cannot create file '{file_path}' - access to this file type is restricted"
         
-        # Check if file exists and handle overwrite
+        # Local file operations
+        # Check if file exists
         if os.path.exists(file_path) and not overwrite:
-            return f"Error: File '{file_path}' already exists. Use 'overwrite: true' to replace it or use update_file operation"
+            return f"Error: File '{file_path}' already exists. Use 'overwrite: true' to overwrite"
         
-        # Create parent directories if they don't exist
-        os.makedirs(os.path.dirname(os.path.abspath(file_path)), exist_ok=True)
+        # Create parent directory (if it doesn't exist)
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
         
-        # Write the file
+        # Write file content
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(content)
         
-        return f"Success: File '{file_path}' created successfully"
+        return f"Successfully created file: {file_path}"
         
     except Exception as e:
         logger.error(f"Error creating file: {e}")
         return f"Error creating file: {str(e)}"
 
+@remote_file_operation
 def read_file(params: Dict) -> str:
     """
     Read the content of a file.
@@ -181,8 +188,8 @@ def read_file(params: Dict) -> str:
         str: File content or error message
     """
     file_path = params.get("file_path")
-    start_line = params.get("start_line")
-    end_line = params.get("end_line")
+    start_line = params.get("start_line", 1)
+    end_line = params.get("end_line", None)
     
     if not file_path:
         return "Error: Missing required parameter 'file_path'"
@@ -195,6 +202,7 @@ def read_file(params: Dict) -> str:
         if should_exclude_file(file_path):
             return f"Error: Cannot read file '{file_path}' - access to this file type is restricted"
         
+        # Local file operations
         # Check if file exists
         if not os.path.exists(file_path):
             return f"Error: File '{file_path}' does not exist"
@@ -203,27 +211,29 @@ def read_file(params: Dict) -> str:
         if not os.path.isfile(file_path):
             return f"Error: '{file_path}' is not a file"
         
-        # Read the file
-        if start_line is not None or end_line is not None:
-            # Read specific line range
-            with open(file_path, 'r', encoding='utf-8') as f:
+        # Read file content
+        with open(file_path, 'r', encoding='utf-8') as f:
+            if start_line > 1 or end_line is not None:
+                # Read specific lines
                 lines = f.readlines()
-            
-            # Convert to 0-based indexing for Python
-            start_idx = (int(start_line) - 1) if start_line is not None else 0
-            end_idx = int(end_line) if end_line is not None else len(lines)
-            
-            # Validate line range
-            if start_idx < 0:
-                start_idx = 0
-            if end_idx > len(lines):
-                end_idx = len(lines)
-            
-            # Extract the requested lines
-            content = ''.join(lines[start_idx:end_idx])
-        else:
-            # Read the entire file
-            with open(file_path, 'r', encoding='utf-8') as f:
+                
+                # Adjust to 1-based indexing
+                start_idx = start_line - 1
+                end_idx = end_line if end_line is None else end_line - 1
+                
+                # Validate line range
+                if start_idx < 0:
+                    start_idx = 0
+                if end_idx is not None and end_idx >= len(lines):
+                    end_idx = len(lines) - 1
+                
+                # Get requested lines
+                if end_idx is None:
+                    content = ''.join(lines[start_idx:])
+                else:
+                    content = ''.join(lines[start_idx:end_idx+1])
+            else:
+                # Read entire file
                 content = f.read()
         
         return content
@@ -234,6 +244,7 @@ def read_file(params: Dict) -> str:
         logger.error(f"Error reading file: {e}")
         return f"Error reading file: {str(e)}"
 
+@remote_file_operation
 def update_file(params: Dict) -> str:
     """
     Update an existing file with new content, replace specific text, or append content.
@@ -241,7 +252,7 @@ def update_file(params: Dict) -> str:
     Args:
         params: Dictionary containing:
             - file_path: Path to the file to update
-            - content: New content (for full rewrite or append)
+            - content (optional): New content for the file
             - old_str (optional): Text to replace
             - new_str (optional): Replacement text
             - mode (optional): Update mode - 'write' (default), 'append', or 'replace'
@@ -257,12 +268,14 @@ def update_file(params: Dict) -> str:
     
     if not file_path:
         return "Error: Missing required parameter 'file_path'"
-    
-    # Validate parameters
-    if mode == "replace" and (old_str is None or new_str is None):
-        return "Error: Both 'old_str' and 'new_str' must be provided for replace mode"
-    elif mode in ["write", "append"] and content is None:
-        return f"Error: 'content' must be provided for {mode} mode"
+        
+    # Validate parameters based on mode
+    if mode == "write" and content is None:
+        return "Error: 'content' parameter is required for 'write' mode"
+    elif mode == "append" and content is None:
+        return "Error: 'content' parameter is required for 'append' mode"
+    elif mode == "replace" and (old_str is None or new_str is None):
+        return "Error: 'old_str' and 'new_str' parameters are required for 'replace' mode"
     
     try:
         # Clean and normalize the path
@@ -272,6 +285,7 @@ def update_file(params: Dict) -> str:
         if should_exclude_file(file_path):
             return f"Error: Cannot update file '{file_path}' - access to this file type is restricted"
         
+        # Local file operations
         # Check if file exists
         if not os.path.exists(file_path):
             return f"Error: File '{file_path}' does not exist"
@@ -280,46 +294,33 @@ def update_file(params: Dict) -> str:
         if not os.path.isfile(file_path):
             return f"Error: '{file_path}' is not a file"
         
-        # Full rewrite
+        # Read current content
+        with open(file_path, 'r', encoding='utf-8') as f:
+            current_content = f.read()
+        
+        # Update content based on mode
         if mode == "write":
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            return f"Success: File '{file_path}' completely updated"
-        
-        # String replacement
-        elif mode == "replace":
-            # Read the current content
-            with open(file_path, 'r', encoding='utf-8') as f:
-                current_content = f.read()
-            
-            # Check if old_str exists
-            if old_str not in current_content:
-                return f"Error: Text to replace not found in '{file_path}'"
-            
-            # Count occurrences
-            occurrences = current_content.count(old_str)
-            if occurrences > 1:
-                return f"Warning: '{old_str}' appears {occurrences} times in the file. All occurrences will be replaced."
-            
-            # Perform replacement
-            new_content = current_content.replace(old_str, new_str)
-            
-            # Write back
-            with open(file_path, 'w', encoding='utf-8') as f:
-                f.write(new_content)
-            
-            return f"Success: Replaced '{old_str}' with '{new_str}' in '{file_path}'"
-        
-        # Append content
+            new_content = content
         elif mode == "append":
-            with open(file_path, 'a', encoding='utf-8') as f:
-                f.write(content)
-            return f"Success: Content appended to '{file_path}'"
+            new_content = current_content + content
+        elif mode == "replace":
+            new_content = current_content.replace(old_str, new_str)
+        else:
+            return f"Error: Invalid mode '{mode}'. Supported modes: write, append, replace"
         
+        # Write updated content
+        with open(file_path, 'w', encoding='utf-8') as f:
+            f.write(new_content)
+        
+        return f"Success: File '{file_path}' updated successfully"
+        
+    except UnicodeDecodeError:
+        return f"Error: '{file_path}' appears to be a binary file and cannot be updated as text"
     except Exception as e:
         logger.error(f"Error updating file: {e}")
         return f"Error updating file: {str(e)}"
 
+@remote_file_operation
 def delete_file(params: Dict) -> str:
     """
     Delete a file or directory.
@@ -346,27 +347,36 @@ def delete_file(params: Dict) -> str:
         if should_exclude_file(file_path):
             return f"Error: Cannot delete '{file_path}' - access to this file type is restricted"
         
+        # Local file operations
         # Check if file exists
         if not os.path.exists(file_path):
             return f"Error: '{file_path}' does not exist"
         
-        # Handle directory
-        if os.path.isdir(file_path):
-            if not recursive:
-                return f"Error: '{file_path}' is a directory. Use 'recursive: true' to delete directories"
-            
-            import shutil
-            shutil.rmtree(file_path)
-            return f"Success: Directory '{file_path}' and its contents deleted"
-        
-        # Handle file
-        os.remove(file_path)
-        return f"Success: File '{file_path}' deleted"
+        # Determine if it's a file or directory
+        if os.path.isfile(file_path):
+            # Delete file
+            os.remove(file_path)
+            return f"Success: File '{file_path}' deleted successfully"
+        else:
+            # Delete directory
+            if recursive:
+                shutil.rmtree(file_path)
+                return f"Success: Directory '{file_path}' and its contents deleted successfully"
+            else:
+                try:
+                    os.rmdir(file_path)
+                    return f"Success: Directory '{file_path}' deleted successfully"
+                except OSError as e:
+                    if "not empty" in str(e).lower():
+                        return f"Error: Directory '{file_path}' is not empty. Use 'recursive: true' to delete non-empty directories"
+                    else:
+                        return f"Error: '{file_path}' is neither a file nor a directory"
         
     except Exception as e:
-        logger.error(f"Error deleting file: {e}")
-        return f"Error deleting file: {str(e)}"
+        logger.error(f"Error deleting file or directory: {e}")
+        return f"Error deleting file or directory: {str(e)}"
 
+@remote_file_operation
 def list_directory(params: Dict) -> str:
     """
     List the contents of a directory.
@@ -379,14 +389,18 @@ def list_directory(params: Dict) -> str:
     Returns:
         str: JSON string with directory contents or error message
     """
-    directory_path = params.get("directory_path", ".")
+    directory_path = params.get("directory_path")
     include_hidden = params.get("include_hidden", False)
+    
+    if not directory_path:
+        return "Error: Missing required parameter 'directory_path'"
     
     try:
         # Clean and normalize the path
         directory_path = clean_path(directory_path)
         
-        # Check if directory exists
+        # Local file operations
+        # Check directory exists
         if not os.path.exists(directory_path):
             return f"Error: Directory '{directory_path}' does not exist"
         
@@ -394,39 +408,40 @@ def list_directory(params: Dict) -> str:
         if not os.path.isdir(directory_path):
             return f"Error: '{directory_path}' is not a directory"
         
-        # List contents
+        # List directory contents
         contents = []
         for item in os.listdir(directory_path):
-            # Skip hidden files if not included
+            # Skip hidden files (if needed)
             if not include_hidden and item.startswith('.'):
                 continue
-            
+                
             item_path = os.path.join(directory_path, item)
-            
-            # Skip excluded files
-            if should_exclude_file(item_path):
-                continue
-            
-            # Get item info
-            is_dir = os.path.isdir(item_path)
-            size = os.path.getsize(item_path) if os.path.isfile(item_path) else 0
+            item_type = "directory" if os.path.isdir(item_path) else "file"
+            item_size = os.path.getsize(item_path) if os.path.isfile(item_path) else None
             
             contents.append({
                 "name": item,
-                "is_directory": is_dir,
-                "size": size,
+                "type": item_type,
+                "size": item_size,
                 "path": item_path
             })
         
-        # Sort: directories first, then files
-        contents.sort(key=lambda x: (not x["is_directory"], x["name"]))
+        # Sort by type and name
+        contents.sort(key=lambda x: (0 if x["type"] == "directory" else 1, x["name"]))
         
-        return json.dumps(contents, indent=2)
+        result = {
+            "directory": directory_path,
+            "contents": contents,
+            "count": len(contents)
+        }
+        
+        return json.dumps(result, indent=2)
         
     except Exception as e:
         logger.error(f"Error listing directory: {e}")
         return f"Error listing directory: {str(e)}"
 
+@remote_file_operation
 def file_exists(params: Dict) -> str:
     """
     Check if a file or directory exists.
@@ -447,19 +462,24 @@ def file_exists(params: Dict) -> str:
         # Clean and normalize the path
         file_path = clean_path(file_path)
         
+        # Local file operations
+        # Check if file exists
         exists = os.path.exists(file_path)
-        is_file = os.path.isfile(file_path) if exists else False
-        is_dir = os.path.isdir(file_path) if exists else False
         
+        # Get additional information (if exists)
         result = {
             "exists": exists,
-            "is_file": is_file,
-            "is_directory": is_dir,
-            "path": file_path
+            "path": file_path,
+            "remote": forwarder.remote_enabled if hasattr(forwarder, 'remote_enabled') else False
         }
         
-        if exists and is_file:
-            result["size"] = os.path.getsize(file_path)
+        if exists:
+            result["is_file"] = os.path.isfile(file_path)
+            result["is_directory"] = os.path.isdir(file_path)
+            
+            if result["is_file"]:
+                result["size"] = os.path.getsize(file_path)
+                result["extension"] = os.path.splitext(file_path)[1]
         
         return json.dumps(result, indent=2)
         

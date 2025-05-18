@@ -44,6 +44,12 @@ A powerful, intelligent agent for the terminal that supports natural language in
 - Support for various open-source models (Llama, Mistral, etc.)
 - Easy switching between cloud and local providers
 
+### 6. Remote Execution Support
+- Execute commands on remote servers via SSH
+- Seamless integration between local and remote operations
+- Support for key-based and password authentication
+- Configurable sudo permissions for remote operations
+
 
 ## Architecture
 
@@ -112,6 +118,14 @@ Terminal Agent can be configured through environment variables or a `.env` file:
 | `OLLAMA_API_BASE` | Ollama API base URL | `http://localhost:11434` |
 | `VLLM_API_BASE` | VLLM API base URL | `http://localhost:8000` |
 | `VLLM_API_KEY` | VLLM API key (if required) | None |
+| `REMOTE_EXECUTION_ENABLED` | Enable remote execution via SSH | `false` |
+| `REMOTE_HOST` | Remote host address | None |
+| `REMOTE_USER` | Remote username | None |
+| `REMOTE_PORT` | Remote SSH port | `22` |
+| `REMOTE_AUTH_TYPE` | Authentication type (`key` or `password`) | `key` |
+| `REMOTE_KEY_PATH` | Path to SSH private key | `~/.ssh/id_rsa` |
+| `REMOTE_PASSWORD` | SSH password (if using password auth) | None |
+| `REMOTE_SUDO_ENABLED` | Allow sudo commands on remote host | `false` |
 
 ## Usage
 

@@ -19,6 +19,7 @@ from datetime import datetime
 from terminal_agent.core.agent import TerminalAgent
 from terminal_agent.utils.command_executor import terminate_current_command, reset_stop_flag
 from terminal_agent.utils.logging_config import configure_logging
+from terminal_agent.utils.command_forwarder import forwarder
 
 # Initialize Rich console
 console = Console()
@@ -275,6 +276,10 @@ TERMINAL_AGENT_MODEL=gpt-4
         sys.exit(1)
     
     console.print(f"[bold green]Using {provider.upper()} API with model: {model}[/bold green]")
+    
+    # 显示远程执行状态
+    if forwarder.remote_enabled:
+        console.print(f"[bold green]Remote execution enabled - Connected to: {forwarder.host}@{forwarder.user}[/bold green]")
     
     # Initialize agent
     agent = TerminalAgent(

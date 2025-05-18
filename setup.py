@@ -30,6 +30,8 @@ requirements = [
     # 其他 LLM 提供商支持
     "google-generativeai>=0.3.0",  # Gemini 支持
     "anthropic>=0.5.0",  # Claude 支持
+    # 远程执行支持
+    "paramiko>=2.7.0",  # SSH 连接
 ]
 
 # 可选依赖 - 已经全部移到核心依赖中

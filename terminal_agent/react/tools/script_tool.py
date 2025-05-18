@@ -12,6 +12,8 @@ from typing import Dict, List, Union, Optional, Any, Tuple
 from rich.console import Console
 
 from terminal_agent.utils.command_executor import execute_command
+from terminal_agent.utils.command_forwarder import forwarder, remote_file_operation
+from terminal_agent.react.tools.files_tool import create_file, file_exists, read_file
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -70,25 +72,42 @@ def script_tool(script_request: str) -> str:
 
             # Ensure the script has the correct permissions
             try:
-                with open(filename, "w") as f:
-                    f.write(content)
-
-                # Make the script executable
-                os.chmod(filename, 0o755)
+                # 使用 files_tool 创建文件，支持远程模式
+                create_result = create_file({
+                    "file_path": filename,
+                    "content": content,
+                    "overwrite": True
+                })
+                
+                if "Error" in create_result:
+                    return create_result
+                
+                # 设置可执行权限
+                if forwarder.remote_enabled:
+                    # 在远程主机上设置权限
+                    _, _, _ = forwarder.forward_command(f"chmod 755 {filename}")
+                else:
+                    # 在本地设置权限
+                    os.chmod(filename, 0o755)
 
                 console.print(f"[green]Script created: {filename}[/green]")
             except Exception as e:
                 return f"Error creating script: {str(e)}"
         # Execute the script
         if action in ["execute", "create_and_execute"]:
-            if not os.path.exists(filename):
+            # 检查文件是否存在，支持远程模式
+            exists_result = file_exists({"file_path": filename})
+            if "Error" in exists_result or "does not exist" in exists_result:
                 return f"Error: Script file {filename} does not exist."
 
             # If we're just executing (not creating), check the script content for safety
             if action == "execute":
                 try:
-                    with open(filename, "r") as f:
-                        script_content = f.read()
+                    # 使用 files_tool 读取文件，支持远程模式
+                    script_content = read_file({"file_path": filename})
+                    
+                    if "Error" in script_content:
+                        return script_content
 
                     # Check script safety
                     is_safe, warnings = check_script_safety(script_content)
