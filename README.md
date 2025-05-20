@@ -86,20 +86,6 @@ cd terminal-agent
 pip install -e .
 ```
 
-3. Set up your API key(s)
-```bash
-# Copy the example .env file to the config directory
-mkdir -p ~/.terminal_agent
-cp .env.example ~/.terminal_agent/.env
-
-# Edit the .env file to add your API keys
-# For example:
-# OPENAI_API_KEY=your_api_key_here
-# DEEPSEEK_API_KEY=your_api_key_here
-# GOOGLE_API_KEY=your_api_key_here
-# ANTHROPIC_API_KEY=your_api_key_here
-# JINA_API_KEY=your_api_key_here  # For web crawling functionality
-```
 
 ## Configuration
 
@@ -126,6 +112,51 @@ Terminal Agent can be configured through environment variables or a `.env` file:
 | `REMOTE_KEY_PATH` | Path to SSH private key | `~/.ssh/id_rsa` |
 | `REMOTE_PASSWORD` | SSH password (if using password auth) | None |
 | `REMOTE_SUDO_ENABLED` | Allow sudo commands on remote host | `false` |
+
+
+1. Set up your API key(s)
+```bash
+# Copy the example .env file to the config directory
+mkdir -p ~/.terminal_agent
+cp .env.example ~/.terminal_agent/.env
+
+# Edit the .env file to add your API keys
+# For example:
+# OPENAI_API_KEY=your_api_key_here
+# DEEPSEEK_API_KEY=your_api_key_here
+# GOOGLE_API_KEY=your_api_key_here
+# ANTHROPIC_API_KEY=your_api_key_here
+# JINA_API_KEY=your_api_key_here  # For web crawling functionality
+```
+2. env config for deepseek
+
+```bash
+DEEPSEEK_API_KEY=sk-xxx
+
+TERMINAL_AGENT_PROVIDER=deepseek
+
+#only support deepseek-chat
+TERMINAL_AGENT_MODEL=deepseek-chat
+```
+3. env config for anthropic
+
+```bash
+ANTHROPIC_API_KEY=xxx
+
+TERMINAL_AGENT_PROVIDER=anthropic
+
+TERMINAL_AGENT_MODEL=claude-3-7-sonnet-20250219
+```
+4. env config for vllm
+
+```bash
+VLLM_API_BASE=http://localhost:8000
+
+TERMINAL_AGENT_PROVIDER=vllm
+
+#--served-model-name $modelname
+TERMINAL_AGENT_MODEL=modelname
+```
 
 ## Usage
 
@@ -154,20 +185,6 @@ terminal-agent
 [Terminal Agent] > Install Docker on my system
 ```
 
-- Specifying LLM Provider
-```bash
-# Use a specific provider
-TERMINAL_AGENT_PROVIDER=gemini terminal-agent
-
-# Use local models with Ollama
-TERMINAL_AGENT_PROVIDER=ollama terminal-agent
-
-# Use VLLM server
-TERMINAL_AGENT_PROVIDER=vllm VLLM_API_BASE=http://localhost:8000 terminal-agent
-
-# Or set in your .env file
-echo "TERMINAL_AGENT_PROVIDER=claude" >> ~/.terminal_agent/.env
-```
 
 ### Using Local Models
 
