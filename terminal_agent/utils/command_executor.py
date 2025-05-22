@@ -139,13 +139,25 @@ def execute_command(command: str, module_name: str = "Command", check_success: b
         # 如果需要确认，询问用户是否要执行
         if need_confirmation and not auto_confirm:
             try:
-                user_choice = input("Execute this command? (y/n): ")
+                # 获取用户输入并去除前后空格
+                user_choice = input("Execute this command? (y/n): ").strip().lower()
                 
-                # 如果用户选择不执行，返回错误代码
-                if user_choice.lower() not in ["y", "yes"]:
+                # 如果用户输入stop，设置停止标志
+                if user_choice == "stop":
+                    set_stop_flag()
+                    return 1, "Command execution stopped by user", True
+                
+                # 明确判断用户的否定回答
+                if user_choice in ["n", "no"]:
                     # 设置停止标志，防止后续操作（包括LLM API调用）
                     set_stop_flag()
-                    return 1, "Command execution skipped by user", True
+                    return 1, "Command execution explicitly rejected by user", True
+                    
+                # 如果用户输入既不是肯定也不是否定，视为拒绝执行
+                if user_choice not in ["y", "yes"]:
+                    console.print("[yellow]Unrecognized input. Treating as 'no' for safety.[/yellow]")
+                    set_stop_flag()
+                    return 1, "Command execution skipped due to unrecognized input", True
             except (KeyboardInterrupt, EOFError) as e:
                 # 处理用户中断（如Ctrl+C或Ctrl+D）
                 console.print("\n[bold red]用户中断了命令确认[/bold red]")
@@ -280,18 +292,25 @@ def execute_command_single(command: str, show_output: bool, need_confirmation: b
         console.print(f"\n>>> Command to execute: {command}")
         console.print("(输入 'stop' 可以终止当前命令和所有后续操作)")
         
-        user_choice = input("Execute this command? (y/n): ")
+        # 获取用户输入并去除前后空格
+        user_choice = input("Execute this command? (y/n): ").strip().lower()
         
         # 如果用户输入stop，设置停止标志
-        if user_choice.lower() == "stop":
+        if user_choice == "stop":
             set_stop_flag()
             return 1, "Command execution stopped by user", True
         
-        # 如果用户选择不执行，返回错误代码
-        if user_choice.lower() not in ["y", "yes"]:
+        # 明确判断用户的否定回答
+        if user_choice in ["n", "no"]:
             # 设置停止标志，防止后续操作（包括LLM API调用）
             set_stop_flag()
-            return 1, "Command execution skipped by user", True
+            return 1, "Command execution explicitly rejected by user", True
+            
+        # 如果用户输入既不是肯定也不是否定，视为拒绝执行
+        if user_choice not in ["y", "yes"]:
+            console.print("[yellow]Unrecognized input. Treating as 'no' for safety.[/yellow]")
+            set_stop_flag()
+            return 1, "Command execution skipped due to unrecognized input", True
     
     # 创建进程
     with Progress(
