@@ -165,19 +165,26 @@ class CommandForwarder:
         # Handle working directory if specified
         original_command = command
         
-        # If sudo is enabled and command does not start with sudo
+        # Handle working directory and sudo permissions
+        if cwd:
+            # First cd to the target directory
+            cd_command = f"cd {cwd} && "
+        else:
+            cd_command = ""
+            
+        # Then apply sudo if needed
         if self.sudo_enabled and not command.strip().startswith("sudo"):
-            # When using sudo with a working directory, we need special handling
+            # Add sudo to the actual command, not to the cd part
+            sudo_command = f"sudo {command}"
+            # Combine with cd if needed
             if cwd:
-                # Use bash -c to execute the command in the specified directory
-                # Double quote the command to preserve spaces and special characters
-                command = f"sudo bash -c 'cd {cwd} && {command}'"
+                # Use bash -c to execute the combined command
+                command = f"bash -c '{cd_command}{sudo_command}'"
             else:
-                command = f"sudo {command}"
+                command = sudo_command
         elif cwd:  # No sudo but has cwd
             # Use bash -c to execute the command in the specified directory
-            # This ensures proper parsing of complex commands with pipes, redirects, etc.
-            command = f"bash -c 'cd {cwd} && {command}'"
+            command = f"bash -c '{cd_command}{command}'"
             
         # Try to execute command, if it fails, try to reconnect once
         try:
