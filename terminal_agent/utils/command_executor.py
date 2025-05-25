@@ -116,55 +116,55 @@ def execute_command(command: str, module_name: str = "Command", check_success: b
                   show_output: bool = True, env: Optional[Dict[str, str]] = None,
                   timeout: Optional[int] = None) -> Tuple[int, str, bool]:
     """
-    执行命令并返回结果
+    Execute a command and return the result.
     
     Args:
-        command: 要执行的命令
-        module_name: 模块名称，用于显示错误信息
-        check_success: 是否检查命令执行成功
-        need_confirmation: 是否需要用户确认
-        auto_confirm: 是否自动确认（用于自动化测试）
-        show_output: 是否显示命令输出
-        env: 环境变量字典，用于设置命令执行环境
-        timeout: 命令执行超时时间（秒），如果为None则不设置超时
+        command: The command to execute
+        module_name: Module name, used for displaying error messages
+        check_success: Whether to check if the command executed successfully
+        need_confirmation: Whether user confirmation is required
+        auto_confirm: Whether to auto-confirm (for automated testing)
+        show_output: Whether to display command output
+        env: Environment variables dictionary for command execution
+        timeout: Command execution timeout in seconds, if None no timeout is set
         
     Returns:
-        Tuple[int, str, bool]: 返回代码，输出，是否用户主动取消
+        Tuple[int, str, bool]: Return code, output, whether user actively canceled
     """
     try:
-        # 显示要执行的命令
+        # Display the command to be executed
         console.print(f"\n>>> Command to execute: {command}")
-        console.print("(输入 'stop' 可以终止当前命令和所有后续操作)")
         
-        # 如果需要确认，询问用户是否要执行
+        # Only show the stop prompt when confirmation is needed
         if need_confirmation and not auto_confirm:
+            console.print("(Type 'stop' to terminate the current command and all subsequent operations)")
             try:
-                # 获取用户输入并去除前后空格
+                # Get user input and strip whitespace
                 user_choice = input("Execute this command? (y/n): ").strip().lower()
                 
-                # 如果用户输入stop，设置停止标志
+                # If user inputs 'stop', set the stop flag
                 if user_choice == "stop":
                     set_stop_flag()
                     return 1, "Command execution stopped by user", True
                 
-                # 明确判断用户的否定回答
+                # Explicitly check for negative responses
                 if user_choice in ["n", "no"]:
-                    # 设置停止标志，防止后续操作（包括LLM API调用）
+                    # Set stop flag to prevent subsequent operations (including LLM API calls)
                     set_stop_flag()
                     return 1, "Command execution explicitly rejected by user", True
                     
-                # 如果用户输入既不是肯定也不是否定，视为拒绝执行
+                # If user input is neither affirmative nor negative, treat as rejection
                 if user_choice not in ["y", "yes"]:
                     console.print("[yellow]Unrecognized input. Treating as 'no' for safety.[/yellow]")
                     set_stop_flag()
                     return 1, "Command execution skipped due to unrecognized input", True
             except (KeyboardInterrupt, EOFError) as e:
-                # 处理用户中断（如Ctrl+C或Ctrl+D）
-                console.print("\n[bold red]用户中断了命令确认[/bold red]")
+                # Handle user interruption (like Ctrl+C or Ctrl+D)
+                console.print("\n[bold red]Command confirmation interrupted by user[/bold red]")
                 set_stop_flag()
                 return 1, f"Command confirmation interrupted by user: {str(e)}", True
         
-        # 执行命令并显示进度
+        # Execute command and show progress
         try:
             return_code, output, user_stopped = execute_command_single(
                 command, 
@@ -172,48 +172,48 @@ def execute_command(command: str, module_name: str = "Command", check_success: b
                 need_confirmation=False, 
                 auto_confirm=auto_confirm,
                 timeout=timeout,
-                env=env  # 传递环境变量
+                env=env  # Pass environment variables
             )
         except Exception as e:
-            # 捕获执行命令过程中的任何异常
+            # Catch any exceptions during command execution
             error_msg = f"Error executing command: {str(e)}"
             logger.error(error_msg)
             console.print(f"[bold red]{error_msg}[/bold red]")
             return 1, error_msg, False
         
-        # 初始化建议的修复命令列表
+        # Initialize list of suggested fix commands
         suggested_commands = []
         
-        # 如果没有提供分析器，直接返回结果
+        # If no analyzer is provided, return results directly
         if not check_success:
             return return_code, output, user_stopped
         
-        # 如果用户主动放弃命令，不进行分析，直接返回
+        # If user actively abandoned the command, return without analysis
         if user_stopped:
             return return_code, output, user_stopped
             
-        # 如果命令执行失败，进行错误分析和修复
+        # If command execution failed, perform error analysis and fix
         if return_code != 0:
-            console.print(f"[yellow]{module_name}执行未成功完成[/yellow]")
+            console.print(f"[yellow]{module_name} execution did not complete successfully[/yellow]")
             
             try:
-                # 分析命令输出，提供错误诊断
+                # Analyze command output, provide error diagnosis
                 success, error_message = analyze_command_success(command, output, return_code)
                 
-                # 如果没有提供错误消息，使用默认消息
+                # If no error message is provided, use default message
                 if error_message is None:
-                    error_message = "命令执行失败，请查看输出了解详情"
+                    error_message = "Command execution failed, please check the output for details"
                 
-                # 显示分析结果，帮助用户理解错误，并询问是否执行修复命令
-                console.print("[bold yellow]进行问题定位...[/bold yellow]")
+                # Display analysis results, help user understand the error, and ask whether to execute fix commands
+                console.print("[bold yellow]Locating the problem...[/bold yellow]")
                 selected_fix = display_analysis(error_message, suggested_commands, command, output, return_code, auto_mode=auto_confirm)
                 
-                # 处理用户选择
+                # Handle user selection
                 if selected_fix == "quit":
-                    console.print("[bold red]用户选择退出[/bold red]")
+                    console.print("[bold red]User chose to quit[/bold red]")
                     return return_code, output, True
                 elif selected_fix:
-                    console.print(f"[bold green]执行修复命令: {selected_fix}[/bold green]")
+                    console.print(f"[bold green]Executing fix command: {selected_fix}[/bold green]")
                     try:
                         fix_return_code, fix_output, fix_user_stopped = execute_command(selected_fix, module_name=module_name, need_confirmation=True)
                         

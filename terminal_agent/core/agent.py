@@ -54,6 +54,9 @@ class TerminalAgent:
         
         # Initialize ReAct Agent
         self.react_agent = ReActModule(self.llm_client, self.system_info)
+        
+        # whether user mode is enabled
+        self.user_mode = False
     
     def process_user_input(self, user_input: str) -> None:
         """
@@ -62,27 +65,76 @@ class TerminalAgent:
         Args:
             user_input: Natural language input from user
         """
-        # Add user input to conversation history
-        self.conversation_history.append({"role": "user", "content": user_input})
-        
         # Handle exit command
         if user_input.lower() in ["exit", "quit"]:
             exit(0)
-        
-        # Handle help command
+            
         if user_input.lower() == "help":
             self._show_help()
             return
+            
+        # Handle mode switching commands
+        command_handled = False
+        ai_command = None
         
-        # Process the input using ReAct Agent
-        response = self.react_agent.process_query(user_input, self.conversation_history)
+        if user_input.strip().lower() == "@user":
+            # Switch to User Mode
+            self.user_mode = True
+            console.print("[bold green]Switched to User Mode. Type commands directly.[/bold green]")
+            console.print("[dim]To switch back to AI Mode, type '@ai'[/dim]")
+            command_handled = True
+        elif user_input.strip().lower() == "@ai":
+            # Switch to AI Mode
+            self.user_mode = False
+            console.print("[bold green]Switched to AI Mode. Ask me anything.[/bold green]")
+            command_handled = True
+        elif user_input.strip().lower().startswith("@ai "):
+            # Switch to AI Mode and extract the command
+            self.user_mode = False
+            console.print("[bold green]Switched to AI Mode[/bold green]")
+            
+            # Extract the command after '@ai '
+            ai_command = user_input[4:].strip()
+            # This will be processed in the AI mode section if not empty
+            if ai_command:
+                command_handled = False  # Allow processing in AI mode
+            else:
+                command_handled = True   # Empty command, just switch mode
+            
+        # If a mode switching command was handled, skip further processing
+        if command_handled:
+            return
         
-        # Add response to conversation history
-        self.conversation_history.append({"role": "assistant", "content": response})
-        
-        # Limit conversation history to last 20 exchanges to prevent context overflow
-        if len(self.conversation_history) > 20:
-            self.conversation_history = self.conversation_history[-20:]
+        # Process input based on current mode
+        if self.user_mode:
+            # User Mode: directly execute the command
+            from terminal_agent.utils.command_executor import execute_command
+            console.print(f"[dim]$ {user_input}[/dim]")
+            # 设置 show_output=True 让 execute_command 直接显示输出，避免重复显示
+            return_code, output, _ = execute_command(user_input, show_output=True, need_confirmation=False)
+            
+            # 不再重复显示输出，因为 execute_command 已经显示过了
+            
+            # If command execution failed, display error code
+            if return_code != 0 and not output:
+                console.print(f"[bold red]Command execution failed with code: {return_code}[/bold red]")
+        else:
+            # AI Mode: process with ReAct Agent
+            # Determine which command to process
+            command_to_process = ai_command if ai_command else user_input
+            
+            # Add user input to conversation history
+            self.conversation_history.append({"role": "user", "content": command_to_process})
+            
+            # Process the input using ReAct Agent
+            response = self.react_agent.process_query(command_to_process, self.conversation_history)
+            
+            # Add response to conversation history
+            self.conversation_history.append({"role": "assistant", "content": response})
+            
+            # Limit conversation history to last 20 exchanges to prevent context overflow
+            if len(self.conversation_history) > 20:
+                self.conversation_history = self.conversation_history[-20:]
     
     def _show_help(self) -> None:
         """Display help information"""
@@ -99,7 +151,14 @@ class TerminalAgent:
         
         ## Available Modes:
         
-        - **ReAct Agent** - Uses reasoning and acting to solve complex tasks through shell commands
+        - **AI Mode** - AI-driven mode where the agent automatically executes commands when needed (default)
+        - **User Mode** - You directly type and execute commands like in a regular terminal
+        
+        ## Mode Switching:
+        
+        - `@user` - Switch to User Mode
+        - `@ai` - Switch to AI Mode
+        - `@ai <command>` - Switch to AI Mode and execute the specified command
         
         ## Example Queries:
         
