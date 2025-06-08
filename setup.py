@@ -18,7 +18,7 @@ requirements = [
     "rich>=13.7.0",
     "python-dotenv>=1.0.0",
     "pydantic>=2.0.0",
-    "psutil>=5.9.6",
+    "psutil>=7.0.0",
     "colorama>=0.4.6",
     "pyfiglet>=1.0.2",
     "typer>=0.9.0",
@@ -32,6 +32,12 @@ requirements = [
     "anthropic>=0.5.0",  # Claude 支持
     # 远程执行支持
     "paramiko>=2.7.0",  # SSH 连接
+    # 代码分析工具依赖
+    "multilspy==0.0.15",  # 多语言 LSP 支持
+    "jedi==0.19.1",      # Python 代码分析
+    "codetext==0.0.9",   # 代码处理
+    "tree-sitter==0.21.3",  # 语法分析
+    "tree-sitter-languages==1.10.2",  # 语言支持
 ]
 
 # 可选依赖 - 已经全部移到核心依赖中
@@ -39,10 +45,10 @@ extras_require = {}
 
 setup(
     name="terminal-agent",
-    version="0.2.0",
+    version="0.3.0",
     author="Terminal Agent Team",
-    author_email="info@terminalagent.ai",
-    description="An intelligent terminal assistant using ReAct architecture",
+    author_email="zhyblife99@gmail.com",
+    description="An intelligent terminal assistant for DevOps and SRE",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/SagesAi/terminal-agent",

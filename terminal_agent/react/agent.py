@@ -30,6 +30,11 @@ from terminal_agent.utils.logging_config import get_logger
 from terminal_agent.react.tools.files_tool import files_tool
 from terminal_agent.react.tools.script_tool import script_tool
 from terminal_agent.react.tools.web_page import web_page_tool
+from terminal_agent.react.tools.get_all_references_tool import get_all_references_tool
+from terminal_agent.react.tools.get_folder_structure_tool import get_folder_structure_tool
+from terminal_agent.react.tools.goto_definition_tool import goto_definition_tool
+from terminal_agent.react.tools.zoekt_search_tool import zoekt_search_tool
+from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
 
 # Initialize Rich console
 console = Console()
@@ -55,6 +60,11 @@ class ToolName(Enum):
     MESSAGE = auto()  # Message tool for asking questions to the user
     FILES = auto()    # File operations tool for file management
     WEB_PAGE = auto() # Web page tool for retrieving web content
+    GET_ALL_REFERENCES = auto() # Get all references tool for finding all references to a symbol
+    GET_FOLDER_STRUCTURE = auto() # Get folder structure tool for visualizing directory structure
+    GOTO_DEFINITION = auto() # Go to definition tool for finding symbol definitions
+    ZOEKT_SEARCH = auto() # Zoekt search tool for powerful code search
+    GET_SYMBOLS = auto() # Get symbols tool for extracting symbols from files
     NONE = auto()
 
     def __str__(self) -> str:
@@ -893,6 +903,37 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.WEB_PAGE,
         web_page_tool,
         "Crawl a web page and extract its content in a readable format. Used to retrieve information from web pages to assist in completing tasks. "
+    )
+    
+    # Register new code analysis tools
+    agent.register_tool(
+        ToolName.GET_ALL_REFERENCES,
+        get_all_references_tool,
+        "Find all references to a symbol in code. Send a JSON request with 'word' (symbol to find references for), 'relative_path' (path to the file containing the symbol), 'line' (optional, line number), 'verbose' (optional, include detailed information), 'num_results' (optional, maximum number of results), and 'context_limit' (optional, number of context lines)."
+    )
+    
+    agent.register_tool(
+        ToolName.GET_FOLDER_STRUCTURE,
+        get_folder_structure_tool,
+        "Get the folder structure of a repository. Send a JSON request with 'repo_dir' (repository directory), 'max_depth' (optional, maximum depth to traverse), 'exclude_dirs' (optional, directories to exclude), 'exclude_files' (optional, file patterns to exclude), and 'pattern' (optional, file name pattern to match)."
+    )
+    
+    agent.register_tool(
+        ToolName.GOTO_DEFINITION,
+        goto_definition_tool,
+        "Find the definition of a symbol in code. Send a JSON request with 'word' (symbol to find definition for), 'line' (line number), 'relative_path' (path to the file containing the symbol), and 'verbose' (optional, include detailed information)."
+    )
+    
+    agent.register_tool(
+        ToolName.ZOEKT_SEARCH,
+        zoekt_search_tool,
+        "Perform powerful code search using Zoekt. Send a JSON request with 'names' (list of identifiers to search for), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), 'num_results' (optional, maximum number of results), 'verbose' (optional, include detailed information), 'no_color' (optional, disable colored output), and 'use_cache' (optional, use cached results)."
+    )
+    
+    agent.register_tool(
+        ToolName.GET_SYMBOLS,
+        get_symbols_tool,
+        "Extract symbols from a file. Send a JSON request with 'file_path' (file to extract symbols from), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), and 'keyword' (optional, filter symbols by keyword)."
     )
 
     # Return the configured agent

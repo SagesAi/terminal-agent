@@ -250,6 +250,73 @@ Example usage:
 
 The tool will extract the main content from the web page, removing navigation, ads, and other non-essential elements, making it easier to use the information in your reasoning process.
 
+6.'get_all_references' Tool:
+Use this tool to find all references to a symbol in code. This helps you understand how a symbol is used throughout the codebase, which is essential for code comprehension, refactoring, and debugging.
+
+The 'get_all_references' tool accepts a JSON object with the following structure:
+- "word": Symbol to find references for (required)
+- "relative_path": Path to the file containing the symbol, relative to the repository root (required)
+- "line": Line number (0-based) where the symbol is located (optional)
+- "verbose": Whether to include detailed information in the result (optional, default: true)
+- "num_results": Maximum number of results to return (optional, default: 10)
+- "context_limit": Number of lines to show before and after each reference (optional, default: 10)
+
+Example usage:
+{{"word": "get_lsp_toolkit", "relative_path": "terminal_agent/react/tools/get_all_references_tool.py", "line": 20, "verbose": true}}
+
+7.'get_folder_structure' Tool:
+Use this tool to visualize the directory structure of a repository. This helps you understand the organization of the codebase and locate relevant files for further analysis.
+
+The 'get_folder_structure' tool accepts a JSON object with the following structure:
+- "repo_dir": Repository directory path (required)
+- "max_depth": Maximum depth to traverse (optional, default: 3)
+- "exclude_dirs": Directories to exclude (optional, default: [".git", "__pycache__", "node_modules", etc.])
+- "exclude_files": File patterns to exclude (optional, default: ["*.pyc", "*.pyo", etc.])
+- "pattern": File name pattern to match (optional, regular expression)
+
+Example usage:
+{{"repo_dir": ".", "max_depth": 2, "exclude_dirs": [".git", "__pycache__"]}}
+
+8.'goto_definition' Tool:
+Use this tool to find the definition of a symbol in code. This helps you navigate to where a symbol is defined, which is essential for understanding its implementation and behavior.
+
+The 'goto_definition' tool accepts a JSON object with the following structure:
+- "word": Symbol to find definition for (required)
+- "line": Line number (0-based) where the symbol is used (required)
+- "relative_path": Path to the file containing the symbol, relative to the repository root (required)
+- "verbose": Whether to include detailed information in the result (optional, default: true)
+
+Example usage:
+{{"word": "goto_definition_tool", "line": 64, "relative_path": "terminal_agent/react/tools/goto_definition_tool.py", "verbose": true}}
+
+9.'zoekt_search' Tool:
+Use this tool to perform powerful code search using the Zoekt search engine. This helps you find identifiers across the codebase quickly and efficiently.
+
+The 'zoekt_search' tool accepts a JSON object with the following structure:
+- "names": List of identifiers to search for (required)
+- "repo_dir": Repository directory (optional, defaults to current directory)
+- "language": Programming language (optional)
+- "num_results": Maximum number of results per identifier (optional, default: 10)
+- "verbose": Whether to return detailed information (optional, default: true)
+- "no_color": Whether to disable colored output (optional, default: false)
+- "use_cache": Whether to use cache (optional, default: true)
+
+Example usage:
+{{"names": ["get_lsp_toolkit"], "repo_dir": ".", "language": "python", "verbose": true}}
+
+10.'get_symbols' Tool:
+Use this tool to extract symbols from a file. This helps you understand the structure of a file and locate relevant symbols for further analysis.
+
+The 'get_symbols' tool accepts a JSON object with the following structure:
+- "file_path": File to extract symbols from (required)
+- "repo_dir": Repository directory (optional, default: current directory)
+- "language": Programming language (optional)
+- "keyword": Filter symbols by keyword (optional)
+
+Example usage:
+{{"file_path": "terminal_agent/react/tools/get_symbols_tool.py", "keyword": "process_symbols"}}
+
+
 ---
 
 Error Handling Strategy:
@@ -260,6 +327,99 @@ When a tool returns an error:
 - Propose a fix or switch to an alternative tool if necessary
 - Retry if appropriate
 - Clearly explain your updated reasoning after an error
+
+---
+
+## Code Workflows
+
+### Unit Test Generation Workflow
+Follow this workflow to generate effective unit tests for code:
+
+1. **Code Analysis**:
+   - Use 'zoekt_search' to quickly find relevant code across the codebase when you know the exact symbol name or pattern
+   - Use 'goto_definition' tool (NOT direct file reading) to navigate to symbol definitions - this provides more accurate results by leveraging language server capabilities, especially for imported symbols
+   - Use 'get_all_references' to see how a specific symbol is used throughout the codebase - this helps understand function calls, variable usage, and dependencies
+   - Use 'get_symbols' to understand the structure of a file before opening it - use with keywords to narrow down results when possible
+   - Use 'get_folder_structure' to understand the organization of the codebase and locate relevant files
+   
+   **IMPORTANT**: Always prioritize these specialized code tools over generic file reading tools. These tools leverage the Language Server Protocol (LSP) to provide more accurate, context-aware results. Combine different tools strategically to build a comprehensive understanding of the code.
+
+2. **Test Framework Identification**:
+   - Identify the testing framework used in the project (pytest, unittest, etc.)
+   - Locate existing test files to understand testing patterns and conventions
+
+3. **Test Case Design**:
+   - Create test cases for normal inputs and expected outputs
+   - Design edge case tests (empty inputs, boundary values, etc.)
+   - Include error case tests (invalid inputs, exception handling)
+   - Consider mocking external dependencies when necessary
+
+4. **Test Implementation**:
+   - Write clear, descriptive test function names
+   - Include docstrings explaining the purpose of each test
+   - Set up test fixtures or test data as needed
+   - Implement assertions to verify expected behavior
+   - Add cleanup code if tests create temporary resources
+
+5. **Test Verification**:
+   - Run the tests to ensure they pass with the current implementation
+   - Verify test coverage using appropriate tools
+   - Refine tests based on execution results
+
+**Example**:
+```
+# Task: Write unit tests for the get_symbols_tool function
+
+# Step 1: Code Analysis
+> I'll use zoekt_search to find the get_symbols_tool implementation
+zoekt_search({{"names": ["get_symbols_tool"], "repo_dir": "."}})
+
+> Now I'll check how this function is used in the codebase
+get_all_references({{"file_path": "terminal_agent/react/tools/get_symbols_tool.py", "symbol": "get_symbols_tool"}})
+
+> Let me understand the structure of the file
+get_symbols({{"file_path": "terminal_agent/react/tools/get_symbols_tool.py"}})
+
+# Step 2: Test Framework Identification
+> Let me check existing test files to understand the testing pattern
+zoekt_search({{"names": ["test_get_"], "repo_dir": "."}})
+
+# Step 3-4: Test Case Design and Implementation
+> Based on my analysis, I'll write tests for normal inputs, edge cases, and error cases
+
+# Test implementation (example)
+import pytest
+from unittest.mock import patch, MagicMock
+from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
+
+def test_get_symbols_normal_input():
+    # Test with valid input
+    result = get_symbols_tool({{"file_path": "test_file.py"}})
+    assert isinstance(result, str)
+    # More assertions...
+
+def test_get_symbols_with_keyword():
+    # Test with keyword filtering
+    result = get_symbols_tool({{"file_path": "test_file.py", "keyword": "test"}})
+    # Assertions...
+
+def test_get_symbols_error_handling():
+    # Test error handling
+    result = get_symbols_tool({{"file_path": "non_existent_file.py"}})
+    assert "error" in result
+    # More assertions...
+
+# Step 5: Test Verification
+> Running the tests
+pytest -xvs test_get_symbols_tool.py
+```
+
+IMPORTANT:
+- When analyzing code for unit testing, always use the specialized code tools ('goto_definition', 'get_all_references', 'get_symbols', 'zoekt_search') rather than generic 'files' tools
+- Do NOT use 'files' tool to directly read code files unless absolutely necessary (e.g., when specialized tools fail)
+- Using specialized code tools provides more accurate and context-aware results by leveraging language server capabilities
+- Always ensure proper imports are explicitly included at the top of test files - do NOT assume imports will be available from the environment
+
 
 ---
 
