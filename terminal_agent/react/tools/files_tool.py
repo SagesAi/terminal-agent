@@ -190,6 +190,7 @@ def read_file(params: Dict) -> str:
     file_path = params.get("file_path")
     start_line = params.get("start_line", 1)
     end_line = params.get("end_line", None)
+    max_lines = params.get("max_lines", 100)  # Default maximum of 100 lines per read
     
     if not file_path:
         return "Error: Missing required parameter 'file_path'"
@@ -211,30 +212,60 @@ def read_file(params: Dict) -> str:
         if not os.path.isfile(file_path):
             return f"Error: '{file_path}' is not a file"
         
+        # Get total line count (optional)
+        total_lines = None
+        try:
+            # Only count total lines for files smaller than 10MB
+            if os.path.getsize(file_path) < 10 * 1024 * 1024:  # Only calculate total lines for files smaller than 10MB
+                with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+                    total_lines = sum(1 for _ in f)
+        except Exception as e:
+            logger.debug(f"Failed to count total lines: {e}")
+        
         # Read file content
-        with open(file_path, 'r', encoding='utf-8') as f:
-            if start_line > 1 or end_line is not None:
-                # Read specific lines
-                lines = f.readlines()
-                
-                # Adjust to 1-based indexing
-                start_idx = start_line - 1
-                end_idx = end_line if end_line is None else end_line - 1
-                
-                # Validate line range
-                if start_idx < 0:
-                    start_idx = 0
-                if end_idx is not None and end_idx >= len(lines):
-                    end_idx = len(lines) - 1
-                
-                # Get requested lines
-                if end_idx is None:
-                    content = ''.join(lines[start_idx:])
-                else:
-                    content = ''.join(lines[start_idx:end_idx+1])
+        with open(file_path, 'r', encoding='utf-8', errors='replace') as f:
+            # Skip lines before the specified start line
+            if start_line > 1:
+                for _ in range(start_line - 1):
+                    next(f, None)
+            
+            # Calculate how many lines to read
+            if end_line is not None:
+                lines_to_read = min(end_line - start_line + 1, max_lines)
             else:
-                # Read entire file
-                content = f.read()
+                lines_to_read = max_lines
+            
+            # Read the specified number of lines
+            lines = []
+            for i in range(lines_to_read):
+                line = next(f, None)
+                if line is None:
+                    break
+                lines.append(line)
+            
+            # If no lines were read
+            if not lines:
+                return f"No content found at line {start_line}"
+            
+            # Build content
+            content = ''.join(lines)
+            
+            # Add line range information
+            actual_end_line = start_line + len(lines) - 1
+            line_range_info = f"[Lines {start_line}-{actual_end_line}"
+            
+            if total_lines:
+                line_range_info += f" of {total_lines}]"
+            else:
+                line_range_info += "]"
+            
+            # Check if there are more lines
+            next_line = next(f, None)
+            if next_line is not None:
+                line_range_info += f" (More lines available, continue from line {actual_end_line + 1})"
+            
+            # Add line range information to the beginning of content
+            content = line_range_info + "\n\n" + content
         
         return content
         

@@ -204,6 +204,13 @@ For "read_file":
 - "file_path": Path to the file to read (required)
 - "start_line": Starting line number (optional, 1-based indexing)
 - "end_line": Ending line number (optional, inclusive)
+- "max_lines": Maximum number of lines to read (optional, default: 100)
+
+Notes for "read_file":
+- For large files, the tool automatically reads in chunks of max_lines (default 100 lines)
+- Output includes line range information: [Lines <start>-<end> of <total>]
+- If more content is available, output includes: (More lines available, continue from line <next>)
+- To read next chunk, use the suggested line number as start_line in your next call
 
 For "update_file":
 - "file_path": Path to the file to update (required)
