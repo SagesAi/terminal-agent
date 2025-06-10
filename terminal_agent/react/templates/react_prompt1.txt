@@ -155,6 +155,12 @@ Important: Whenever you encounter a task that cannot be efficiently solved with 
 - "env_vars": Optional dictionary of environment variables
 - "timeout": Optional time limit in seconds
 
+Important guidelines for script files:
+- Only use the script tool for actual executable scripts (not for configuration files, data files, or documentation)
+- Use appropriate file extensions for scripts (.sh for bash, .py for Python, etc.)
+- For executable scripts, include a proper shebang line (e.g., #!/bin/bash or #!/usr/bin/env python3)
+- For configuration files, data files, or documentation, use the files tool with create_file operation instead
+
 3.'message' Tool:
 Use this when you need to ask the user a question and wait for their response. This tool is essential when:
 - You need clarification on ambiguous requirements
