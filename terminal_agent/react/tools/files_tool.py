@@ -283,10 +283,14 @@ def update_file(params: Dict) -> str:
     Args:
         params: Dictionary containing:
             - file_path: Path to the file to update
-            - content (optional): New content for the file
-            - old_str (optional): Text to replace
-            - new_str (optional): Replacement text
-            - mode (optional): Update mode - 'write' (default), 'append', or 'replace'
+            - content (optional): New content for the file (required for write/append/line_range modes)
+            - mode (optional): Update mode - 'write' (default), 'append', 'replace', or 'line_range'
+            - old_str (optional): Text to replace (required for replace mode)
+            - new_str (optional): Replacement text (required for replace mode)
+            - all_occurrences (optional): Whether to replace all occurrences (default: False, replace mode only)
+            - start_line (optional): Starting line number (required for line_range mode, 1-based)
+            - end_line (optional): Ending line number (required for line_range mode, inclusive)
+            - create_backup (optional): Whether to create a backup before updating (default: True)
             
     Returns:
         str: Success or error message
@@ -295,7 +299,11 @@ def update_file(params: Dict) -> str:
     content = params.get("content")
     old_str = params.get("old_str")
     new_str = params.get("new_str")
+    start_line = params.get("start_line")
+    end_line = params.get("end_line")
     mode = params.get("mode", "write").lower()
+    all_occurrences = params.get("all_occurrences", False)
+    create_backup = params.get("create_backup", True)
     
     if not file_path:
         return "Error: Missing required parameter 'file_path'"
@@ -307,6 +315,8 @@ def update_file(params: Dict) -> str:
         return "Error: 'content' parameter is required for 'append' mode"
     elif mode == "replace" and (old_str is None or new_str is None):
         return "Error: 'old_str' and 'new_str' parameters are required for 'replace' mode"
+    elif mode == "line_range" and (start_line is None or end_line is None or content is None):
+        return "Error: 'start_line', 'end_line', and 'content' parameters are required for 'line_range' mode"
     
     try:
         # Clean and normalize the path
@@ -325,9 +335,21 @@ def update_file(params: Dict) -> str:
         if not os.path.isfile(file_path):
             return f"Error: '{file_path}' is not a file"
         
+        # Create backup if requested
+        backup_path = None
+        if create_backup:
+            import shutil
+            backup_path = f"{file_path}.bak"
+            shutil.copy2(file_path, backup_path)
+        
         # Read current content
         with open(file_path, 'r', encoding='utf-8') as f:
-            current_content = f.read()
+            if mode == "line_range":
+                # Read as lines for line_range mode
+                lines = f.readlines()
+                current_content = "".join(lines)
+            else:
+                current_content = f.read()
         
         # Update content based on mode
         if mode == "write":
@@ -335,15 +357,34 @@ def update_file(params: Dict) -> str:
         elif mode == "append":
             new_content = current_content + content
         elif mode == "replace":
-            new_content = current_content.replace(old_str, new_str)
+            # Replace occurrences based on all_occurrences flag
+            if all_occurrences:
+                new_content = current_content.replace(old_str, new_str)
+            else:
+                new_content = current_content.replace(old_str, new_str, 1)
+        elif mode == "line_range":
+            # Validate line numbers
+            try:
+                start_idx = int(start_line) - 1  # Convert to 0-based index
+                end_idx = int(end_line)  # end_line is inclusive
+                
+                if start_idx < 0 or start_idx >= len(lines) or end_idx <= start_idx or end_idx > len(lines):
+                    return f"Error: Invalid line range. File has {len(lines)} lines, requested range: {start_line}-{end_line}"
+                
+                # Replace lines in the specified range
+                new_lines = lines[:start_idx] + [content + ("\n" if not content.endswith("\n") else "")] + lines[end_idx:]
+                new_content = "".join(new_lines)
+            except ValueError:
+                return "Error: 'start_line' and 'end_line' must be integers"
         else:
-            return f"Error: Invalid mode '{mode}'. Supported modes: write, append, replace"
+            return f"Error: Invalid mode '{mode}'. Supported modes: write, append, replace, line_range"
         
         # Write updated content
         with open(file_path, 'w', encoding='utf-8') as f:
             f.write(new_content)
         
-        return f"Success: File '{file_path}' updated successfully"
+        backup_msg = f" (Backup created: {backup_path})" if backup_path else ""
+        return f"Success: File '{file_path}' updated successfully{backup_msg}"
         
     except UnicodeDecodeError:
         return f"Error: '{file_path}' appears to be a binary file and cannot be updated as text"

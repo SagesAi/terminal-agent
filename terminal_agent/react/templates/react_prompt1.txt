@@ -220,13 +220,20 @@ Notes for "read_file":
 
 For "update_file":
 - "file_path": Path to the file to update (required)
-- "content": New content for full rewrite or append
 - "mode": Update mode (optional, default: "write")
   - "write": Completely rewrite the file with new content
   - "append": Append content to the end of the file
   - "replace": Replace specific text in the file
-- "old_str": Text to replace (required for replace mode)
-- "new_str": Replacement text (required for replace mode)
+  - "line_range": Replace content between specified line numbers
+- "content": New content (required for write/append/line_range modes)
+- For replace mode:
+  - "old_str": Text to replace
+  - "new_str": Replacement text
+  - "all_occurrences": Whether to replace all occurrences (optional, default: false)
+- For line_range mode:
+  - "start_line": Starting line number (1-based indexing)
+  - "end_line": Ending line number (inclusive)
+- "create_backup": Whether to create a backup before updating (optional, default: true)
 
 For "compare_files":
 - "file_path1": Path to the first file (required)
