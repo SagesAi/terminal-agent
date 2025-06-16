@@ -35,6 +35,7 @@ from terminal_agent.react.tools.get_folder_structure_tool import get_folder_stru
 from terminal_agent.react.tools.goto_definition_tool import goto_definition_tool
 from terminal_agent.react.tools.zoekt_search_tool import zoekt_search_tool
 from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
+# Import expand_message_tool module when needed
 
 # Initialize Rich console
 console = Console()
@@ -65,6 +66,7 @@ class ToolName(Enum):
     GOTO_DEFINITION = auto() # Go to definition tool for finding symbol definitions
     ZOEKT_SEARCH = auto() # Zoekt search tool for powerful code search
     GET_SYMBOLS = auto() # Get symbols tool for extracting symbols from files
+    EXPAND_MESSAGE = auto() # Expand message tool for viewing full content of truncated messages
     NONE = auto()
 
     def __str__(self) -> str:
@@ -153,24 +155,25 @@ class ReActAgent:
         self.max_iterations = max_iterations
         self.current_iteration = 0
         self.template = self._load_template(template_path)
-        
+        self.model = getattr(llm_client, 'model', 'gpt-4')
+
         # Memory system initialization
         self.memory_enabled = memory_enabled
         self.user_id = user_id
         self.session_id = None
-        
+
         if memory_enabled:
             try:
                 from terminal_agent.memory.memory_database import MemoryDatabase
                 from terminal_agent.memory.context_manager import ContextManager
                 from terminal_agent.memory.session_manager import SessionManager
-                
+
                 # Initialize memory components
                 if memory_db is None:
                     self.memory_db = MemoryDatabase()
                 else:
                     self.memory_db = memory_db
-                    
+
                 self.context_manager = ContextManager(self.memory_db, llm_client)
                 self.session_manager = SessionManager(self.memory_db, self.context_manager)
                 logger.info("Memory system initialized")
@@ -212,10 +215,10 @@ class ReActAgent:
         # 确保 content 是字符串
         if not isinstance(content, str):
             content = str(content)
-            
+
         message = Message(role=role, content=content)
         self.messages.append(message)
-        
+
         # Store message in memory system if enabled
         if self.memory_enabled and self.session_id and role in ["user", "assistant", "system"]:
             try:
@@ -265,10 +268,10 @@ class ReActAgent:
         try:
             # 复制基本提示消息列表，避免修改原始列表
             prompt_messages = list(self.base_prompt_messages)
-            
+
             # 添加当前任务的本地消息历史
             prompt_messages.extend(self._convert_history_to_messages())
-            
+
             logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {len(self.messages)} local messages")
             # Get the LLM's response using the message-based method
             response = self.llm_client.call_with_messages(prompt_messages)
@@ -280,10 +283,10 @@ class ReActAgent:
             # Decide on the next action based on the response
             self.decide(response)
         except ConnectionError as e:
-            # 处理连接错误，直接退出 React loop
+            # Handle connection error, exit React loop directly
             logger.error(f"Connection error in ReActAgent.think: {str(e)}")
             self.trace("user", f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {str(e)}", display=True)
-            # 不再调用 self.think()，直接退出循环
+            # No longer call self.think(), exit the loop directly
             console.print("[bold red]Exiting ReAct loop due to connection error.[/bold red]")
             return
 
@@ -315,7 +318,7 @@ class ReActAgent:
                     border_style="blue",
                     padding=(1, 2)
                 )
-                
+
                 # 显示面板
                 console.print(panel)
 
@@ -348,11 +351,12 @@ class ReActAgent:
             elif "final_answer" in parsed_response:
                 # Format and display the final answer with rich formatting
                 answer = parsed_response['final_answer']
+        
 
                 # Create a beautiful panel for the answer
                 console.print("\n")  # Add some spacing
                 console.print(Panel(
-                    Markdown(answer),
+                    Markdown(self.safe_markdown(answer)),
                     title="[bold green]Answer[/bold green]",
                     border_style="green",
                     expand=False,
@@ -360,7 +364,7 @@ class ReActAgent:
                 ))
 
                 # Record the answer in the trace but don't print it again
-                
+
                 self.trace("assistant", f"Final Answer: {answer}", display=False)
 
             else:
@@ -387,7 +391,7 @@ class ReActAgent:
         """
         # Get the tool
         tool = self.tools.get(tool_name)
-        
+
         # Special handling for NONE tool (final answer)
         if tool_name == ToolName.NONE:
             # Record the final answer
@@ -400,13 +404,13 @@ class ReActAgent:
 
             # Execute the tool
             result = tool.use(query)
-            
+
             # Check if this is an abort request from the message tool
             if tool_name == ToolName.MESSAGE and result == "__ABORT_TASK__":
                 self.trace("user", "Task aborted by user", display=False)
                 return
-            
-            
+
+
             # Store tool call in memory system if enabled
             if self.memory_enabled and self.session_id:
                 try:
@@ -423,9 +427,9 @@ class ReActAgent:
                         last_message_id = row['id']
                         # Record the tool call
                         self.session_manager.add_tool_call(
-                            last_message_id, 
-                            str(tool_name), 
-                            query, 
+                            last_message_id,
+                            str(tool_name),
+                            query,
                             str(result)
                         )
                 except Exception as e:
@@ -457,6 +461,15 @@ class ReActAgent:
             self.trace("user", f"Error: {error_message}")
             self.think()
 
+    def safe_markdown(self, input_data):
+        # if input_data is dict, convert to JSON string and wrap in Markdown code block
+        if isinstance(input_data, dict):
+            input_data = f"```json\n{json.dumps(input_data, indent=2)}\n```"
+        elif not isinstance(input_data, str):
+            # if input_data is not string, convert to string format (optional: you can also raise an error)
+            input_data = str(input_data)
+        return input_data
+
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
         Parses the JSON response from the LLM.
@@ -472,33 +485,33 @@ class ReActAgent:
         """
         # Clean up the response to extract JSON
         cleaned_response = response.strip()
-        
+
         # 使用基于栈的算法提取最长的有效 JSON 对象
         stack = []
         start_indices = []
         in_string = False
         escape_next = False
         candidates = []
-        
+
         for i, char in enumerate(cleaned_response):
-            # 处理转义字符
+            # Handle escape characters
             if escape_next:
                 escape_next = False
                 continue
-            
+
             if char == '\\':
                 escape_next = True
                 continue
-            
+
             # 处理字符串
             if char == '"' and not escape_next:
                 in_string = not in_string
                 continue
-            
+
             if in_string:
                 continue
-            
-            # 处理括号
+
+            # Handle brackets
             if char == '{':
                 stack.append(char)
                 if len(stack) == 1:
@@ -508,24 +521,24 @@ class ReActAgent:
                 if not stack:
                     start = start_indices.pop()
                     candidates.append(cleaned_response[start:i+1])
-        
-        # 按长度降序排列，优先尝试更长的 JSON 对象
+
+        # Sort by length in descending order, prioritize longer JSON objects
         #candidates.sort(key=len, reverse=True)
-        
-        # 尝试解析每个候选 JSON 对象
+
+        # Try to parse each candidate JSON object
         for json_str in candidates:
             try:
                 return json.loads(json_str)
             except json.JSONDecodeError:
                 continue
-        
-        # 如果没有找到有效的 JSON 对象，抛出异常
+
+        # If no valid JSON object is found, raise an exception
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid response format: unable to parse as JSON. No valid JSON objects found in the response.") from e
+            raise ValueError(f"Invalid response format: please give a valid JSON response as the prompt requires.") from e
 
-        
+
     def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
         """
         Intelligently truncate long outputs to prevent exceeding the model's input token limit.
@@ -543,7 +556,7 @@ class ReActAgent:
         """
             # Roughly estimate token count (approximately 4 characters per token for English)
         estimated_tokens = len(text) / 4
-            
+
         if estimated_tokens <= max_tokens:
             return text
 
@@ -699,40 +712,63 @@ Remember:
         self.messages = []
         self.current_iteration = 0
         reset_stop_flag()
-        
+
         # Initialize base prompt message list for reuse in each reasoning step
         self.base_prompt_messages = []
-        
-        # Initialize or get session if memory is enabled
-        if self.memory_enabled:
-            try:
-                self.session_id = self.session_manager.get_or_create_session(self.user_id)
-                logger.info(f"Using session {self.session_id} for user {self.user_id}")
-                
-                # Load memory messages once
-                try:
-                    # Get messages from memory for LLM context
-                    # (check_and_summarize_if_needed has already been called internally)
-                    memory_messages = self.session_manager.get_messages_for_llm(self.user_id)
-                    if memory_messages:
-                        logger.debug(f"Loaded {len(memory_messages)} messages from memory")
-                        # 将内存消息添加到基本提示消息列表中
-                        self.base_prompt_messages.extend(memory_messages)
-                except Exception as e:
-                    logger.error(f"Error loading memory messages: {e}")
-            except Exception as e:
-                logger.error(f"Error initializing memory session: {e}")
-                self.session_id = None
-        
-        # Create the system prompt once
+
+        # Create the system prompt first
         self.system_prompt = self.template.format(
             query=self.query,
             tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
             **self.system_info
         )
-        
+        system_message = {"role": "system", "content": self.system_prompt}
+
+        # Initialize or get session if memory is enabled
+        if self.memory_enabled:
+            try:
+                self.session_id = self.session_manager.get_or_create_session(self.user_id)
+                logger.info(f"Using session {self.session_id} for user {self.user_id}")
+
+                # Calculate system prompt tokens to adjust available tokens for memory
+                try:
+                    # Get the model's context window size
+                    model_context_size = self._get_model_context_size(self.model)
+
+                    # Calculate system prompt tokens
+                    system_tokens = self.session_manager.context_manager.get_token_count([system_message], self.model)
+                    logger.debug(f"System prompt token count: {system_tokens}")
+
+                    # Calculate available tokens for memory messages
+                    available_tokens = model_context_size - system_tokens
+                    logger.debug(f"Available tokens for memory: {available_tokens}")
+
+                    # Get messages from memory for LLM context with token limit
+                    memory_messages = self.session_manager.get_messages_for_llm(
+                        self.user_id,
+                        model=self.model,
+                        available_tokens=available_tokens
+                    )
+
+                    if memory_messages:
+                        logger.debug(f"Loaded {len(memory_messages)} messages from memory")
+                        # Add memory messages to the base prompt message list
+                        self.base_prompt_messages.extend(memory_messages)
+                except Exception as e:
+                    logger.error(f"Error loading memory messages: {e}")
+                    # Fallback to loading messages without token calculation
+                    try:
+                        memory_messages = self.session_manager.get_messages_for_llm(self.user_id, model=self.model)
+                        if memory_messages:
+                            self.base_prompt_messages.extend(memory_messages)
+                    except Exception as inner_e:
+                        logger.error(f"Error in fallback memory loading: {inner_e}")
+            except Exception as e:
+                logger.error(f"Error initializing memory session: {e}")
+                self.session_id = None
+
         # Add system prompt to the base prompt message list
-        self.base_prompt_messages.insert(0, {"role": "system", "content": self.system_prompt})
+        self.base_prompt_messages.insert(0, system_message)
 
         # Record the user query
         self.trace(role="user", content=query)
@@ -745,10 +781,32 @@ Remember:
         else:
             return "No response generated."
 
+    def _get_model_context_size(self, model: str) -> int:
+        """
+        Get the context window size for a specific model
+
+        Args:
+            model: Model name
+
+        Returns:
+            Context window size in tokens
+        """
+        if 'sonnet' in model.lower():
+            max_tokens = 200 * 1000 - 64000
+        elif 'gpt' in model.lower():
+            max_tokens = 128 * 1000 - 28000
+        elif 'gemini' in model.lower():
+            max_tokens = 1000 * 1000 - 300000
+        elif 'deepseek' in model.lower():
+            max_tokens = 128 * 1000 - 28000
+        else:
+            max_tokens = 41 * 1000 - 10000
+        return max_tokens
+
     def _convert_history_to_messages(self) -> List[Dict[str, str]]:
         """
         Converts the internal message history to a list of message dictionaries for LLM API.
-        
+
         Returns:
             List[Dict[str, str]]: List of message dictionaries with 'role' and 'content' keys.
         """
@@ -771,7 +829,7 @@ def shell_command_tool(command: str) -> str:
     try:
         # Execute the command
         return_code, output, _ = execute_command(command)
-        
+
         # Return the command output
         return f"Return Code: {return_code}\nOutput:\n{output}"
     except Exception as e:
@@ -781,44 +839,44 @@ def shell_command_tool(command: str) -> str:
 def message_tool(query: str) -> str:
     """
     A tool to ask the user questions and wait for responses.
-    
+
     This tool allows the Agent to ask questions and get answers from users, suitable for:
     - Clarifying ambiguous requirements
     - Confirming before important operations
     - Gathering additional information to complete tasks
     - Offering options and requesting user preferences
     - Validating assumptions critical to task success
-    
+
     Args:
         query (str): The question to ask the user, can be a simple string or JSON format.
                     If JSON format, it should contain a "question" field.
                     Example: {"question": "Which configuration option would you prefer?"}
-        
+
     Returns:
         str: The user's answer.
     """
     try:
-        # 处理字典类型的输入
+        # Handle dictionary type input
         if isinstance(query, dict):
             if "question" in query:
                 question = query["question"]
             else:
-                # 如果字典中没有 question 字段，尝试将整个字典转换为字符串
+                # If there is no question field in the dictionary, try to convert the entire dictionary to a string
                 question = str(query)
         else:
-            # 处理字符串类型的输入
+            # Handle string type input
             question = query
-            
-            # 尝试解析 JSON 格式（如果是 JSON 字符串）
+
+            # Try to parse JSON format (if it's a JSON string)
             if isinstance(query, str) and query.startswith('{') and query.endswith('}'):
                 try:
                     query_data = json.loads(query)
                     if "question" in query_data:
                         question = query_data["question"]
                 except json.JSONDecodeError:
-                    # 如果解析失败，仍使用原始查询
+                    # If parsing fails, still use the original query
                     pass
-            
+
         # Display the question to the user
         console.print()
         console.print(Panel(
@@ -826,20 +884,20 @@ def message_tool(query: str) -> str:
             title="[bold cyan]Agent Question[/bold cyan]",
             border_style="cyan"
         ))
-        
+
         # Get user input
         console.print("[bold cyan]Please enter your answer:[/bold cyan]")
         console.print("[dim](Type 'quit' or 'stop' to exit)[/dim]")
         user_response = input("> ")
-        
+
         # Remove leading whitespace from user input
         user_response = user_response.lstrip()
-        
+
         # Handle special keywords
         if user_response.lower() in ["quit", "exit", "stop"]:
             console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
             return "__ABORT_TASK__"
-        
+
         # Return the user's answer
         return user_response
     except Exception as e:
@@ -897,44 +955,59 @@ def create_react_agent(llm_client: LLMClient,
         files_tool,
         "Perform file operations including creating, reading, updating, and deleting files, as well as listing directory contents. Send a JSON request with 'operation' (create_file, read_file, update_file, delete_file, list_directory, file_exists) and operation-specific parameters. All paths are relative to the current working directory unless absolute paths are provided."
     )
-    
+
     # Register the web page tool
     agent.register_tool(
         ToolName.WEB_PAGE,
         web_page_tool,
         "Crawl a web page and extract its content in a readable format. Used to retrieve information from web pages to assist in completing tasks. "
     )
-    
+
     # Register new code analysis tools
     agent.register_tool(
         ToolName.GET_ALL_REFERENCES,
         get_all_references_tool,
         "Find all references to a symbol in code. Send a JSON request with 'word' (symbol to find references for), 'relative_path' (path to the file containing the symbol), 'line' (optional, line number), 'verbose' (optional, include detailed information), 'num_results' (optional, maximum number of results), and 'context_limit' (optional, number of context lines)."
     )
-    
+
     agent.register_tool(
         ToolName.GET_FOLDER_STRUCTURE,
         get_folder_structure_tool,
         "Get the folder structure of a repository. Send a JSON request with 'repo_dir' (repository directory), 'max_depth' (optional, maximum depth to traverse), 'exclude_dirs' (optional, directories to exclude), 'exclude_files' (optional, file patterns to exclude), and 'pattern' (optional, file name pattern to match)."
     )
-    
+
     agent.register_tool(
         ToolName.GOTO_DEFINITION,
         goto_definition_tool,
         "Find the definition of a symbol in code. Send a JSON request with 'word' (symbol to find definition for), 'line' (line number), 'relative_path' (path to the file containing the symbol), and 'verbose' (optional, include detailed information)."
     )
-    
+
     agent.register_tool(
         ToolName.ZOEKT_SEARCH,
         zoekt_search_tool,
         "Perform powerful code search using Zoekt. Send a JSON request with 'names' (list of identifiers to search for), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), 'num_results' (optional, maximum number of results), 'verbose' (optional, include detailed information), 'no_color' (optional, disable colored output), and 'use_cache' (optional, use cached results)."
     )
-    
+
     agent.register_tool(
         ToolName.GET_SYMBOLS,
         get_symbols_tool,
         "Extract symbols from a file. Send a JSON request with 'file_path' (file to extract symbols from), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), and 'keyword' (optional, filter symbols by keyword)."
     )
+
+    # Register the expand message tool if memory is enabled
+    if memory_enabled and agent.session_manager:
+        try:
+            from terminal_agent.react.tools.expand_message_tool import init_expand_message_tool
+
+            expand_message = init_expand_message_tool(agent.session_manager)
+            agent.register_tool(
+                ToolName.EXPAND_MESSAGE,
+                expand_message,
+                "Expand a message that was truncated due to length. Use this tool when you see a message that ends with '... (truncated)' and you need to see the full content. Provide the message_id from the truncated message."
+            )
+            logger.info("Expand message tool registered successfully")
+        except Exception as e:
+            logger.error(f"Failed to register expand message tool: {e}")
 
     # Return the configured agent
     return agent

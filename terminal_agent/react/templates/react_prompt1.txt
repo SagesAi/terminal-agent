@@ -91,15 +91,19 @@ Remember: The system cannot interpret anything outside the JSON structure. All y
    - Good: `"input": "ls -la /home/user"`
    - Avoid: `"input": {{ "command": "ls", "args": ["-la", "/home/user"] }}`
 
-2. **Handle Special Characters**: Properly escape special characters in strings
+2. **Avoid Nested JSON in final_answer Fields**: When providing output for final answers, use simple string formats 
+   - Good: `"final_answer": "####memory_usage\nfree_memory: 6604 pages (about 25.8 MB)\n"`
+   - Avoid: `"final_answer": {{"memory_usage": {{ "free_memory": "6604 pages (about 25.8 MB)"}}}}`
+
+3. **Handle Special Characters**: Properly escape special characters in strings
    - Good: `"input": "echo \"Hello world\""`
    - Bad: `"input": "echo "Hello world""`
 
-3. **Long Inputs**: For very long inputs (e.g., script content), ensure proper escaping of newlines and quotes
+4. **Long Inputs**: For very long inputs (e.g., script content), ensure proper escaping of newlines and quotes
    - Use `\n` for line breaks in JSON strings
    - Avoid triple backticks or other markdown within the JSON structure
 
-4. **Common Error Patterns to Avoid**:
+5. **Common Error Patterns to Avoid**:
    - Mixing single and double quotes
    - Adding comments within the JSON
    - Including markdown formatting within JSON values
@@ -336,6 +340,18 @@ The 'get_symbols' tool accepts a JSON object with the following structure:
 Example usage:
 {{"file_path": "terminal_agent/react/tools/get_symbols_tool.py", "keyword": "process_symbols"}}
 
+11.'expand_message' Tool:
+Use this tool to expand a message that was truncated due to length. This is useful when you encounter a message that ends with "... (truncated)" and you need to see its full content.
+
+The 'expand_message' tool accepts a JSON object with the following structure:
+- "message_id": ID of the message to expand (required)
+
+When a message is truncated during compression, it will include a note with the message ID that can be used with this tool. Look for text like: "This message is too long, use the expand-message tool with message_id "uuid-of-message" to see the full message".
+
+Example usage:
+{{"message_id": "123e4567-e89b-12d3-a456-426614174000"}}
+
+The tool will return the complete content of the message, along with metadata like role and creation time.
 
 ---
 
