@@ -224,20 +224,22 @@ Notes for "read_file":
 
 For "update_file":
 - "file_path": Path to the file to update (required)
-- "mode": Update mode (optional, default: "write")
-  - "write": Completely rewrite the file with new content
-  - "append": Append content to the end of the file
-  - "replace": Replace specific text in the file
-  - "line_range": Replace content between specified line numbers
+- "mode": Update mode (required, must be one of: "write", "append", "replace", "line_range")
+  - "write": ⚠️ WARNING: This will completely overwrite the file. Use with extreme caution as it will delete all existing content.
+  - "append": Safely add content to the end of the file without modifying existing content
+  - "replace": Replace specific text in the file (safer than write mode)
+  - "line_range": Replace content between specific line numbers (safer than write mode)
 - "content": New content (required for write/append/line_range modes)
-- For replace mode:
-  - "old_str": Text to replace
+- For replace mode (required when mode is "replace"):
+  - "old_str": Text to replace (must exactly match the text to be replaced)
   - "new_str": Replacement text
   - "all_occurrences": Whether to replace all occurrences (optional, default: false)
-- For line_range mode:
+- For line_range mode (required when mode is "line_range"):
   - "start_line": Starting line number (1-based indexing)
   - "end_line": Ending line number (inclusive)
-- "create_backup": Whether to create a backup before updating (optional, default: true)
+- "create_backup": Whether to create a backup before updating (recommended: true, default: true)
+
+⚠️ IMPORTANT: Always prefer using "replace" or "line_range" modes over "write" mode to prevent accidental data loss.
 
 For "compare_files":
 - "file_path1": Path to the first file (required)
