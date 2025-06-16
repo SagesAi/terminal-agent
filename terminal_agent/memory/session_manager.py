@@ -162,8 +162,77 @@ class SessionManager:
         except Exception as e:
             logger.error(f"Error adding tool call: {e}")
             return ""
-    
-    def get_messages_for_llm(self, user_id: str) -> List[Dict]:
+
+    def get_messages_for_llm(self, user_id: str, model: str = "gpt-4", available_tokens: Optional[int] = None) -> List[Dict]:
+        """Get messages for LLM context
+        
+        This method will:
+        1. Get or create user session
+        2. Check if summary generation is needed
+        3. Return messages suitable for LLM context
+        
+        Args:
+            user_id: User ID
+            model: LLM model name for token counting and compression
+            available_tokens: Optional token limit after accounting for system prompt
+            
+        Returns:
+            Message list for LLM context
+        """
+        try:
+            # Get or create session
+            session_id = self.get_or_create_session(user_id)
+            
+            # Check if summary generation is needed
+            #self.context_manager.check_and_summarize_if_needed(session_id, model)
+            
+            # Get context messages with compression if needed
+            # If available_tokens is provided, use it to adjust compression
+            if available_tokens:
+                # Get the default token threshold from context manager
+                default_threshold = self.context_manager.token_threshold
+                
+                # Temporarily adjust token threshold based on available tokens
+                # This ensures we don't exceed the available token space
+                adjusted_threshold = min(default_threshold, available_tokens)
+                original_threshold = self.context_manager.token_threshold
+                
+                try:
+                    # Temporarily set the adjusted threshold
+                    self.context_manager.token_threshold = adjusted_threshold
+                    messages = self.context_manager.get_messages_for_context(session_id, model)
+                finally:
+                    # Restore original threshold
+                    self.context_manager.token_threshold = original_threshold
+            else:
+                # Use default threshold
+                messages = self.context_manager.get_messages_for_context(session_id, model)
+            
+            # Convert to format required by LLM
+            llm_messages = []
+            for msg in messages:
+                # Handle potentially compressed content
+                if isinstance(msg["content"], dict) and msg["content"].get("_truncated_content"):
+                    # For truncated content, use the message or a default message
+                    content = msg["content"].get("_message", "[Content was truncated due to length]")
+                else:
+                    content = str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
+                
+                llm_message = {
+                    "role": msg["role"],
+                    "content": content
+                }
+                llm_messages.append(llm_message)
+                
+            token_count = self.context_manager.get_token_count(llm_messages, model)
+            logger.warning(f"Retrieved {len(llm_messages)} LLM context messages for user {user_id} with {token_count} tokens")
+            return llm_messages
+            
+        except Exception as e:
+            logger.error(f"Error getting LLM messages: {e}")
+            return []
+
+    def get_messages_for_llm_dropped(self, user_id: str) -> List[Dict]:
         """Get messages for LLM context
         
         This method will:
