@@ -369,16 +369,21 @@ class ReActAgent:
 
             else:
                 # Handle invalid response format
-                raise ValueError("Invalid response format: missing 'action' or 'final_answer' field")
+                error_msg = (
+                    "Invalid response format: missing 'action' or 'final_answer' field. "
+                    "Please provide a valid JSON response like the following:\n\n"
+                    f"{self._get_json_format_example()}"
+                )
+                raise ValueError(error_msg)
 
         except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse response as JSON: {e}")
-            self.trace("user", f"Error parsing response: {str(e)}. Trying again.")
+            logger.error(f"🐛 Oopsie-doodle! The response got a bit jumbled, do not worry, just try again")
+            self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
         except Exception as e:
-            logger.error(f"Error processing response: {e}")
-            self.trace("user", f"Error: {str(e)}. Trying again.")
+            logger.error(f"🤖 Whoops-a-daisy! Something went a bit wonky, do not worry, just try again")
+            self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
     def act(self, tool_name: ToolName, query: str) -> None:
@@ -470,6 +475,33 @@ class ReActAgent:
             input_data = str(input_data)
         return input_data
 
+    def _get_json_format_example(self) -> str:
+        """
+        Returns a formatted example of the expected JSON response format.
+        
+        Returns:
+            str: A string containing the formatted example with markdown.
+        """
+        return (
+            'Expected JSON format example (when using a tool):\n'
+            '```json\n'
+            '{\n'
+            '  "thought": "Your detailed step-by-step reasoning about what to do next.",\n'
+            '  "action": {\n'
+            '    "name": "tool_name_from_available_list",\n'
+            '    "input": "Specific input for the tool"\n'
+            '  }\n'
+            '}\n'
+            '```\n\n'
+            'Or when providing a final answer (use simple string, NOT complex structures):\n'
+            '```json\n'
+            '{\n'
+            '  "thought": "I now know the final answer. Here is my reasoning process...",\n'
+            '  "final_answer": "Your answer as a simple string. For complex output, format it as markdown or plain text.\nExample:\n```\nMemory usage: 25%\nCPU usage: 10%\n```"\n'
+            '}'
+            '```'
+        )
+
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
         Parses the JSON response from the LLM.
@@ -532,11 +564,15 @@ class ReActAgent:
             except json.JSONDecodeError:
                 continue
 
-        # If no valid JSON object is found, raise an exception
+        # If no valid JSON object is found, raise an exception with format example
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid response format: please give a valid JSON response as the prompt requires.") from e
+            error_msg = (
+                "Invalid response format. Please provide a valid JSON response like the following:\n\n"
+                f"{self._get_json_format_example()}"
+            )
+            raise ValueError(error_msg) from e
 
 
     def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
