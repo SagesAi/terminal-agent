@@ -121,6 +121,7 @@ CLI Operations Best Practices:
 - Use terminal commands for system operations, file manipulations, and quick tasks
 - Avoid commands requiring confirmation; actively use -y or -f flags for automatic confirmation
 - Avoid commands with excessive output; save to files when necessary
+- For non-executable files that require compilation (e.g., `.c`, `.go`, `.rs` source files), use the appropriate build command first (e.g., `gcc`, `go build`, `cargo build`) before attempting to execute them
 - **IMPORTANT**: Shell commands are blocking by default - they will not return control until the command completes, which can cause timeouts with long-running operations
 - For non-blocking, long-running commands, consider these approaches:
   1. Run a command in the background using &: `command &`
@@ -320,7 +321,7 @@ Use this tool to perform powerful code search using the Zoekt search engine. Thi
 The 'zoekt_search' tool accepts a JSON object with the following structure:
 - "names": List of identifiers to search for (required)
 - "repo_dir": Repository directory (optional, defaults to current directory)
-- "language": Programming language (optional)
+- "language": Programming language (required)
 - "num_results": Maximum number of results per identifier (optional, default: 10)
 - "verbose": Whether to return detailed information (optional, default: true)
 - "no_color": Whether to disable colored output (optional, default: false)

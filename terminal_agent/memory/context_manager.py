@@ -17,12 +17,13 @@ from terminal_agent.memory.memory_database import MemoryDatabase
 logger = logging.getLogger(__name__)
 
 # Token management constants
-DEFAULT_TOKEN_THRESHOLD = 8192  # Default token threshold
+DEFAULT_TOKEN_THRESHOLD = 4096  # Default token threshold
 SUMMARY_TARGET_TOKENS = 1000    # Summary target token count
 RESERVE_TOKENS = 500            # Reserved tokens for new messages
 DEFAULT_USER_MESSAGE_THRESHOLD = 2048  # Default threshold for user message compression
 DEFAULT_ASSISTANT_MESSAGE_THRESHOLD = 4096  # Default threshold for assistant message compression
-DEFAULT_MAX_ITERATIONS = 6  # Default max iterations for recursive compression
+DEFAULT_MAX_ITERATIONS = 8  # Default max iterations for recursive compression
+MIN_TOKEN_THRESHOLD = 50  # Minimum threshold to prevent excessive compression
 
 class ContextManager:
     """Manages session context, including token counting and summary generation"""
@@ -62,13 +63,13 @@ class ContextManager:
         except Exception as e:
             logger.warning(f"Error in token counting: {e}, falling back to heuristic method")
 
-        # Simple estimation: each English word is about 0.6 tokens
+        # Simple estimation: each English word is about 0.3 tokens
         total_tokens = 0
         for msg in messages:
             content = msg.get("content", "")
             if isinstance(content, dict):
                 content = json.dumps(content)
-            total_tokens += len(str(content).split()) * 0.6
+            total_tokens += len(str(content).split()) * 0.3
         return int(total_tokens)
 
     def should_summarize(self, messages: List[Dict]) -> bool:
@@ -109,6 +110,76 @@ class ContextManager:
     def _compress_messages(self, messages: List[Dict], model: str, max_tokens: int = 41000,
                           token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
                           max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
+        """Compress messages using while loop until token count is within limit
+        
+        Args:
+            messages: Message list
+            model: LLM model
+            max_tokens: Maximum token count
+            token_threshold: Token threshold for compression
+            max_iterations: Maximum iterations for recursive compression
+            
+        Returns:
+            Compressed message list
+        """
+        # check if initial token count is within limit
+        initial_token_count = self.get_token_count(messages, model)
+        logger.info(f"Initial token count: {initial_token_count}, max_tokens: {max_tokens}")
+        if initial_token_count <= max_tokens:
+            return messages
+
+        # initialize state variables - always start from original messages
+        current_threshold = token_threshold
+        current_messages = messages.copy()
+        current_token_count = initial_token_count
+    
+        # core loop: continue trying compression as long as token count exceeds limit
+        while current_token_count > max_tokens:
+            # check if threshold has reached minimum
+            if current_threshold < MIN_TOKEN_THRESHOLD:
+                logger.warning(
+                    f"Token threshold {current_threshold} below minimum {MIN_TOKEN_THRESHOLD}, "
+                    "stopping compression"
+                )
+                return current_messages
+            
+            # important: always start from original messages to apply new threshold
+            # compress user messages
+            user_compressed = self._compress_user_messages(
+                messages, model, max_tokens, current_threshold  # use original messages
+            )
+            user_token_count = self.get_token_count(user_compressed, model)
+            logger.debug(f"After user compression: {initial_token_count} -> {user_token_count}")
+            
+            # compress assistant messages
+            assistant_compressed = self._compress_assistant_messages(
+                user_compressed, model, max_tokens, current_threshold
+            )
+            assistant_token_count = self.get_token_count(assistant_compressed, model)
+            logger.debug(f"After assistant compression: {user_token_count} -> {assistant_token_count}")
+            
+            # update state
+            current_messages = assistant_compressed
+            current_token_count = assistant_token_count
+            
+            # check if compression is successful
+            if current_token_count <= max_tokens:
+                logger.info(f"Compression successful: {current_token_count} tokens ≤ {max_tokens}")
+                return current_messages
+            
+            # lower threshold for next iteration
+            logger.warning(
+                f"Compression insufficient: {current_token_count} > {max_tokens}, "
+                f"lowering threshold to {current_threshold//2}"
+            )
+            current_threshold = current_threshold // 2
+        
+        # theoretically will not reach here
+        return current_messages
+
+    def _compress_messages_dropped(self, messages: List[Dict], model: str, max_tokens: int = 41000,
+                          token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
+                          max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
         """Compress messages, recursively lower threshold if still over max_tokens
 
         Args:
@@ -122,8 +193,12 @@ class ContextManager:
             Compressed message list
         """
 
-        if max_iterations <= 0:
-            logger.warning("Compress messages: reached max iterations, returning uncompressed messages")
+        
+        if max_iterations <= 0 or token_threshold < MIN_TOKEN_THRESHOLD:
+            if max_iterations <= 0:
+                logger.warning("Compress messages: reached max iterations, returning current messages")
+            else:
+                logger.warning(f"Compress messages: token threshold {token_threshold} below minimum {MIN_TOKEN_THRESHOLD}, stopping compression")
             return messages
 
         result = messages  # Create copy to avoid modifying original messages
