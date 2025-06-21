@@ -131,7 +131,7 @@ class DeepSeekProvider(BaseLLMProvider):
             
             # Call the API
             try:
-                with httpx.Client(timeout=60.0) as client:
+                with httpx.Client(timeout=60.0*3) as client:
                     response = client.post(
                         f"{self.api_base}/chat/completions",
                         headers=headers,

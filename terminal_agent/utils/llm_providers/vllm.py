@@ -74,7 +74,7 @@ class VLLMProvider(BaseLLMProvider):
         if self.api_key:
             headers["Authorization"] = f"Bearer {self.api_key}"
         
-        self.client = httpx.Client(timeout=60.0, headers=headers)  # Longer timeout for inference
+        self.client = httpx.Client(timeout=60.0*3, headers=headers)  # Longer timeout for inference
         
         # Try to fetch available models from VLLM server
         try:
