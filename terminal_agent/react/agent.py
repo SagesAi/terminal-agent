@@ -35,6 +35,7 @@ from terminal_agent.react.tools.get_folder_structure_tool import get_folder_stru
 from terminal_agent.react.tools.goto_definition_tool import goto_definition_tool
 from terminal_agent.react.tools.zoekt_search_tool import zoekt_search_tool
 from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
+from terminal_agent.react.tools.code_edit_tool import code_edit_tool
 # Import expand_message_tool module when needed
 
 # Initialize Rich console
@@ -66,6 +67,7 @@ class ToolName(Enum):
     GOTO_DEFINITION = auto() # Go to definition tool for finding symbol definitions
     ZOEKT_SEARCH = auto() # Zoekt search tool for powerful code search
     GET_SYMBOLS = auto() # Get symbols tool for extracting symbols from files
+    CODE_EDIT = auto() # Code edit tool for precise code modifications with syntax checking
     EXPAND_MESSAGE = auto() # Expand message tool for viewing full content of truncated messages
     NONE = auto()
 
@@ -1028,6 +1030,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.GET_SYMBOLS,
         get_symbols_tool,
         "Extract symbols from a file. Send a JSON request with 'file_path' (file to extract symbols from), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), and 'keyword' (optional, filter symbols by keyword)."
+    )
+    
+    # Register the code edit tool
+    agent.register_tool(
+        ToolName.CODE_EDIT,
+        code_edit_tool,
+        "Edit code files with proper syntax checking and formatting. Send a JSON request with 'file_path' (path to the file to edit), 'start_line' (starting line number), 'end_line' (ending line number), 'new_content' (replacement code), 'language' (optional, auto-detected from file extension), 'description' (optional), and 'check_syntax' (optional, whether to check syntax after edit)."
     )
 
     # Register the expand message tool if memory is enabled

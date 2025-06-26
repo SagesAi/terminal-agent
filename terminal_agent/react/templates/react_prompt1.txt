@@ -287,7 +287,86 @@ The 'get_symbols' tool accepts a JSON object with the following structure:
 Example usage:
 {{"file_path": "terminal_agent/react/tools/get_symbols_tool.py", "keyword": "process_symbols"}}
 
-11.'expand_message' Tool:
+11.'code_edit' Tool:
+Use this tool to edit code files with proper syntax checking and formatting. This is ideal for making precise code modifications while ensuring the edited code is syntactically valid.
+
+The 'code_edit' tool accepts a JSON object with the following structure:
+- "file_path": Path to the file to edit (required)
+- "model": Editing mode, either "replace" or "add" (optional, default: "replace")
+- "new_content": The new code to add or replace (required)
+- "old_content": The exact content being replaced (HIGHLY RECOMMENDED for replace mode)
+- "start_line": Starting line number (1-based indexing) (required for add mode, NOT NEEDED for replace mode if old_content is provided)
+- "end_line": Ending line number (1-based indexing, inclusive) (NOT NEEDED for replace mode if old_content is provided)
+- "language": Programming language of the file (optional, auto-detected from file extension)
+- "description": Description of the edit (optional)
+- "check_syntax": Whether to check syntax after edit (optional, default: true)
+
+IMPORTANT GUIDELINES FOR CODE EDITING:
+1. Choose the appropriate model for your edit:
+   - Use "replace" mode when replacing existing code (functions, classes, blocks)
+   - Use "add" mode when inserting new code without removing existing code
+
+2. When using "replace" mode:
+   - ALWAYS provide the old_content parameter with the exact content being replaced
+   - DO NOT provide start_line and end_line when old_content is provided
+   - The tool will automatically find the correct line numbers based on the old_content
+   - Only provide line numbers as a fallback if you cannot determine the exact old_content
+   - When editing functions, classes, or other code blocks, ALWAYS include the ENTIRE definition
+
+3. When using "add" mode:
+   - Specify the start_line where the new code should be inserted
+   - The new content will be inserted at the specified line without removing any existing code
+
+4. PREFER COMPLETE REPLACEMENTS over partial edits:
+   - When modifying a function, replace the entire function rather than just a few lines within it
+   - This ensures proper syntax and avoids code fragmentation
+
+5. Always verify the content before editing by using the 'files' tool with 'read_file' operation
+
+6. When replacing code, ensure your new_content is a complete, syntactically valid replacement that can stand on its own
+
+Example usage (replace mode with old_content - PREFERRED METHOD):
+{{
+  "file_path": "/path/to/file.py",
+  "model": "replace",
+  "new_content": "def new_function():\n    print('This is a new function')\n    return True\n",
+  "old_content": "def old_function():\n    print('This is the old function')\n    return False\n",
+  "language": "python",
+  "description": "Replace old function with new implementation"
+}}
+
+Example usage (replace mode with line numbers - FALLBACK METHOD ONLY):
+{{
+  "file_path": "/path/to/file.py",
+  "model": "replace",
+  "start_line": 10,
+  "end_line": 15,
+  "old_content": "def old_function():\n    print('This is the old function')\n    return False\n",
+  "new_content": "def new_function():\n    print('This is a new function')\n    return True\n",
+  "language": "python",
+  "description": "Replace old function with new implementation"
+}}
+
+Example usage (add mode):
+{{
+  "file_path": "/path/to/file.py",
+  "model": "add",
+  "start_line": 10,
+  "new_content": "def new_function():\n    print('This is a new function')\n    return True\n",
+  "language": "python",
+  "description": "Add new function after line 10"
+}}
+
+Important Notes:
+- ALWAYS prefer providing old_content over line numbers for more accurate replacements
+- When using old_content, DO NOT provide start_line and end_line parameters
+- The tool will automatically find the correct line numbers based on old_content
+- A backup of the original file is created before making changes
+- The tool will automatically check syntax for supported languages
+- Use this tool instead of manually constructing file edits with shell commands
+- For complex edits, consider breaking them into smaller, focused changes
+
+12.'expand_message' Tool:
 Use this tool to expand a message that was truncated due to length. This is useful when you encounter a message that ends with "... (truncated)" and you need to see its full content.
 
 The 'expand_message' tool accepts a JSON object with the following structure:
@@ -296,7 +375,9 @@ The 'expand_message' tool accepts a JSON object with the following structure:
 When a message is truncated during compression, it will include a note with the message ID that can be used with this tool. Look for text like: "This message is too long, use the expand-message tool with message_id "uuid-of-message" to see the full message".
 
 Example usage:
-{{"message_id": "123e4567-e89b-12d3-a456-426614174000"}}
+{{
+  "message_id": "123e4567-e89b-12d3-a456-426614174000"
+}}
 
 The tool will return the complete content of the message, along with metadata like role and creation time.
 
@@ -346,7 +427,7 @@ Follow this structured approach to analyze codebases:
 **Important Notes**:
   - when analyzing implementation mechanisms and business logic, You should always make sure that the answer should include code snippets.
   - You should always make sure that the final answer base the real analysis of the codebase and the function names, class names, and file names of the answer are correct
-  - You should always make sure that when making code modifications, you should use the replace mode of the update_file tool instead of creating new files.
+  - You should always make sure that when making code modifications, you should use the code_edit tool instead of creating new files.
 
 ### Unit Test Generation Workflow
 Follow this workflow to generate effective unit tests for code:
@@ -357,8 +438,7 @@ Follow this workflow to generate effective unit tests for code:
    - Use 'get_all_references' to see how a specific symbol is used throughout the codebase - this helps understand function calls, variable usage, and dependencies
    - Use 'get_symbols' to understand the structure of a file before opening it - use with keywords to narrow down results when possible
    - Use 'get_folder_structure' to understand the organization of the codebase and locate relevant files
-   - Use  'update_file' tool  replace mode to modify the  source code file 
-   
+   - Use 'code_edit' tool to modify the source code file
 
 2. **Test Framework Identification**:
    - Identify the testing framework used in the project (pytest, unittest, etc.)
@@ -381,7 +461,6 @@ Follow this workflow to generate effective unit tests for code:
    - Run the tests to ensure they pass with the current implementation
    - Verify test coverage using appropriate tools
    - Refine tests based on execution results
-```
 
 **Important Notes**:
 - When analyzing code for unit testing, always use the specialized code tools ('goto_definition', 'get_all_references', 'get_symbols', 'zoekt_search') rather than generic 'files' tools
