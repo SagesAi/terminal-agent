@@ -294,9 +294,9 @@ The 'code_edit' tool accepts a JSON object with the following structure:
 - "file_path": Path to the file to edit (required)
 - "model": Editing mode, either "replace" or "add" (optional, default: "replace")
 - "new_content": The new code to add or replace (required)
-- "old_content": The exact content being replaced (HIGHLY RECOMMENDED for replace mode)
-- "start_line": Starting line number (1-based indexing) (required for add mode, NOT NEEDED for replace mode if old_content is provided)
-- "end_line": Ending line number (1-based indexing, inclusive) (NOT NEEDED for replace mode if old_content is provided)
+- "old_content": The exact content being replaced (REQUIRED for replace mode)
+- "start_line": Starting line number (1-based indexing) (REQUIRED for add mode, optional for replace mode)
+- "end_line": Ending line number (1-based indexing, inclusive) (required when start_line is provided)
 - "language": Programming language of the file (optional, auto-detected from file extension)
 - "description": Description of the edit (optional)
 - "check_syntax": Whether to check syntax after edit (optional, default: true)
@@ -307,10 +307,10 @@ IMPORTANT GUIDELINES FOR CODE EDITING:
    - Use "add" mode when inserting new code without removing existing code
 
 2. When using "replace" mode:
-   - ALWAYS provide the old_content parameter with the exact content being replaced
-   - DO NOT provide start_line and end_line when old_content is provided
-   - The tool will automatically find the correct line numbers based on the old_content
-   - Only provide line numbers as a fallback if you cannot determine the exact old_content
+   - ALWAYS provide the old_content parameter with the exact content being replaced (REQUIRED)
+   - start_line and end_line are optional but can be provided for more precise targeting
+   - The tool will attempt to find the correct line numbers based on the old_content if start_line and end_line are not provided
+   - If you provide start_line, you must also provide end_line
    - When editing functions, classes, or other code blocks, ALWAYS include the ENTIRE definition
 
 3. When using "add" mode:

@@ -160,17 +160,19 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
             logger.error(f"Invalid model parameter: {model}. Must be 'replace' or 'add'")
             return json.dumps({"error": f"Invalid model parameter: {model}. Must be 'replace' or 'add'"})
         
-        # For add mode, we need start_line but not end_line
-        # For replace mode, we need both start_line and end_line, or old_content
+        # Validate parameters based on the following rules:
+        # 1. For add mode, start_line is required
+        # 2. For replace mode, old_content is required, while start_line and end_line are optional
         if model == "add":
             if start_line is None:
                 logger.error("Missing required parameter: start_line for add mode")
                 return json.dumps({"error": "Missing required parameter: start_line for add mode"})
         else:  # replace mode
-            if start_line is None and old_content is None:
-                logger.error("Missing required parameters: either start_line and end_line, or old_content must be provided for replace mode")
-                return json.dumps({"error": "Missing required parameters: either start_line and end_line, or old_content must be provided for replace mode"})
+            if old_content is None:
+                logger.error("Missing required parameter: old_content for replace mode")
+                return json.dumps({"error": "Missing required parameter: old_content for replace mode"})
             
+            # start_line and end_line are optional, but if start_line is provided, end_line must also be provided
             if start_line is not None and end_line is None:
                 logger.error("Missing required parameter: end_line when start_line is provided")
                 return json.dumps({"error": "Missing required parameter: end_line when start_line is provided"})
@@ -499,7 +501,7 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
             
             # Create preview of changes
             original_preview = "\n".join(lines[max(0, start_index-3):min(end_index+3, len(lines))])
-            # 计算新内容的行数（用于预览）
+            # Calculate the number of lines in the new content (for preview)
             new_content_line_count = len(new_content.splitlines())
             updated_preview = "\n".join(updated_lines[max(0, start_index-3):min(start_index + new_content_line_count + 3, len(updated_lines))])
             
