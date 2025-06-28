@@ -24,11 +24,12 @@ from rich.table import Table
 from pydantic import BaseModel, Field
 
 from terminal_agent.utils.llm_client import LLMClient
-from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
+from terminal_agent.utils.command_forwarder import forwarder
+from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
 from terminal_agent.utils.logging_config import get_logger
-from terminal_agent.react.tools.files_tool import files_tool
 from terminal_agent.react.tools.script_tool import script_tool
+from terminal_agent.react.tools.files_tool import files_tool
 from terminal_agent.react.tools.web_page import web_page_tool
 from terminal_agent.react.tools.get_all_references_tool import get_all_references_tool
 from terminal_agent.react.tools.get_folder_structure_tool import get_folder_structure_tool
@@ -36,6 +37,7 @@ from terminal_agent.react.tools.goto_definition_tool import goto_definition_tool
 from terminal_agent.react.tools.zoekt_search_tool import zoekt_search_tool
 from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
 from terminal_agent.react.tools.code_edit_tool import code_edit_tool
+# Do not import from terminal_agent.react.tools as it would cause circular imports
 # Import expand_message_tool module when needed
 
 # Initialize Rich console
@@ -291,6 +293,11 @@ class ReActAgent:
             # No longer call self.think(), exit the loop directly
             console.print("[bold red]Exiting ReAct loop due to connection error.[/bold red]")
             return
+
+        except Exception as e:
+            logger.error(f"🤖 Whoops-a-daisy! Something went a bit wonky, do not worry, just try again")
+            self.trace("user", f"{str(e)}. Trying again.")
+            self.think()
 
     def decide(self, response: str) -> None:
         """
@@ -689,7 +696,7 @@ If you need to use a tool:
 {{
     "thought": "Your detailed step-by-step reasoning about what to do next",
     "action": {{
-        "name": "Tool name from the available tools list",
+        "name": "tool_name_from_available_list",
         "input": "Specific input for the tool"
     }}
 }}
@@ -753,6 +760,23 @@ Remember:
 
         # Initialize base prompt message list for reuse in each reasoning step
         self.base_prompt_messages = []
+        
+        # Ensure we always use the latest system information, especially the current working directory
+        # If in remote execution mode, get the current working directory from the remote system
+        if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
+            try:
+                exit_code, stdout, stderr = forwarder.forward_command("pwd")
+                if exit_code == 0:
+                    self.system_info["current_working_directory"] = stdout.strip()
+                    logger.info(f"Updated remote working directory: {self.system_info['current_working_directory']}")
+                else:
+                    logger.warning(f"Failed to get remote working directory: {stderr}")
+            except Exception as e:
+                logger.error(f"Error getting remote working directory: {e}")
+        else:
+            # Get local working directory
+            self.system_info["current_working_directory"] = os.getcwd()
+            logger.info(f"Updated local working directory: {self.system_info['current_working_directory']}")
 
         # Create the system prompt first
         self.system_prompt = self.template.format(

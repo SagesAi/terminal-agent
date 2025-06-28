@@ -65,6 +65,19 @@ class TerminalAgent:
         Args:
             user_input: Natural language input from user
         """
+        # Update system info with current working directory
+        # Check if remote execution is enabled
+        if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
+            # Get current working directory from remote system
+            exit_code, stdout, stderr = forwarder.forward_command("pwd")
+            if exit_code == 0:
+                self.system_info["current_working_directory"] = stdout.strip()
+            else:
+                logger.warning(f"Failed to get remote working directory: {stderr}")
+                self.system_info["current_working_directory"] = "<unknown remote directory>"
+        else:
+            # Get local working directory
+            self.system_info["current_working_directory"] = os.getcwd()
         # Handle exit command
         if user_input.lower() in ["exit", "quit"]:
             exit(0)
@@ -127,6 +140,19 @@ class TerminalAgent:
             self.conversation_history.append({"role": "user", "content": command_to_process})
             
             # Process the input using ReAct Agent
+            # Update system info with current working directory before processing
+            # Check if remote execution is enabled
+            if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
+                # Get current working directory from remote system
+                exit_code, stdout, stderr = forwarder.forward_command("pwd")
+                if exit_code == 0:
+                    self.system_info["current_working_directory"] = stdout.strip()
+                else:
+                    logger.warning(f"Failed to get remote working directory: {stderr}")
+                    self.system_info["current_working_directory"] = "<unknown remote directory>"
+            else:
+                # Get local working directory
+                self.system_info["current_working_directory"] = os.getcwd()
             response = self.react_agent.process_query(command_to_process, self.conversation_history)
             
             # Add response to conversation history

@@ -13,6 +13,9 @@ from prompt_toolkit import PromptSession
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.auto_suggest import AutoSuggestFromHistory
 from prompt_toolkit.styles import Style
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.filters import Condition
+from prompt_toolkit.formatted_text import HTML
 import typer
 from datetime import datetime
 
@@ -27,6 +30,8 @@ console = Console()
 # Define styles for prompt toolkit
 style = Style.from_dict({
     'prompt': 'ansicyan bold',
+    'multiline': 'ansiyellow',
+    'continuation': 'ansiblue',
 })
 
 app = typer.Typer()
@@ -39,19 +44,20 @@ def main():
     console.print(f"[bold cyan]{banner}[/bold cyan]")
     console.print("[bold green]Your intelligent Linux terminal assistant[/bold green]")
     console.print("Type 'help' for usage information or 'exit' to quit\n")
-    console.print("[bold yellow]Type 'stop' to terminate the currently running command and all subsequent operations[/bold yellow]\n")
+    console.print("[bold yellow]Type 'stop' to terminate the currently running command and all subsequent operations[/bold yellow]")
+    console.print("[bold magenta]Multiline input shortcuts: Esc then Enter to insert newline, Ctrl+J also inserts newline, Enter to submit[/bold magenta]\n")
     
     # Load environment variables from .env file
     # Try to find .env file in several locations
     home_config_dir = os.path.join(os.path.expanduser("~"), ".terminal_agent")
     home_env = os.path.join(home_config_dir, ".env")
     
-    # 首先检查 ~/.terminal_agent/.env 文件
+    # First check ~/.terminal_agent/.env file
     if os.path.exists(home_env):
         dotenv_path = home_env
         console.print(f"[bold green]Loaded environment from: {dotenv_path}[/bold green]")
     else:
-        # 如果在用户目录下没找到，再检查当前目录
+        # If not found in user directory, check current directory
         dotenv_path = find_dotenv(usecwd=True)
         if dotenv_path:
             console.print(f"[bold green]Loaded environment from: {dotenv_path}[/bold green]")
@@ -59,10 +65,10 @@ def main():
             console.print("[yellow]No .env file found. Looking for API keys in environment variables.[/yellow]")
             console.print("[yellow]You can create a .env file with your API keys for easier configuration:[/yellow]")
             
-            # 打印 .env 示例
+            # Print .env example
             console.print("\n[bold cyan]Example .env file content:[/bold cyan]")
             
-            # 使用 Rich 的 Panel 和 Syntax 功能美化 .env 示例
+            # Use Rich's Panel and Syntax features to beautify .env example
             from rich.panel import Panel
             from rich.syntax import Syntax
             
@@ -277,7 +283,7 @@ TERMINAL_AGENT_MODEL=gpt-4
     
     console.print(f"[bold green]Using {provider.upper()} API with model: {model}[/bold green]")
     
-    # 显示远程执行状态
+    # Display remote execution status
     if forwarder.remote_enabled:
         console.print(f"[bold green]Remote execution enabled - Connected to: {forwarder.host}@{forwarder.user}[/bold green]")
     
@@ -291,40 +297,84 @@ TERMINAL_AGENT_MODEL=gpt-4
     
     # Initialize command history
     history_file = os.path.expanduser("~/.terminal_agent_history")
+    
+    # 创建键绑定
+    kb = KeyBindings()
+    
+    # Multiline input state
+    multiline_input = [False]
+    
+    @kb.add('escape', 'enter')
+    def _(event):
+        """Esc followed by Enter inserts a newline"""
+        event.current_buffer.insert_text('\n')
+        # Mark current input as multiline
+        multiline_input[0] = True
+    
+    @kb.add('c-j')
+    def _(event):
+        """Ctrl+J inserts a newline (more compatible approach)"""
+        event.current_buffer.insert_text('\n')
+        # Mark current input as multiline
+        multiline_input[0] = True
+    
+    @kb.add('enter')
+    def _(event):
+        """Enter key submits the input"""
+        # Submit input regardless of whether it's multiline
+        event.current_buffer.validate_and_handle()
+    
+    # Create prompt message function
+    def get_prompt_tokens():
+        if multiline_input[0]:
+            return HTML('<ansicyan><b>[Terminal Agent]</b></ansicyan> <ansiyellow><b>[Multiline]</b></ansiyellow> > ')
+        else:
+            return HTML('<ansicyan><b>[Terminal Agent]</b></ansicyan> > ')
+    
+    # Initialize PromptSession
     session = PromptSession(
+        message=get_prompt_tokens,
         history=FileHistory(history_file),
-        auto_suggest=AutoSuggestFromHistory()
+        auto_suggest=AutoSuggestFromHistory(),
+        multiline=False,  # Default to single-line mode, implement multiline via key bindings
+        key_bindings=kb,
+        enable_open_in_editor=True,  # Allow editing in external editor
+        input_processors=[],  # Can add custom input processors
+        complete_in_thread=True  # Execute auto-completion in thread to avoid blocking
     )
     
-    # 标记是否正在处理命令输出
+    # Flag to track if currently processing command output
     processing_output = False
     
     # Main interaction loop
     while True:
         try:
-            # 重置处理标记，确保每次循环都能获取用户输入
+            # Reset processing flag to ensure user input can be captured in each loop
             processing_output = False
                 
             # Get user input with prompt toolkit for better UX
-            user_input = session.prompt("\n[Terminal Agent] > ", style=style)
+            user_input = session.prompt(style=style)
+            
+            # Reset multiline state
+            multiline_input[0] = False
             
             # Skip empty inputs
             if not user_input.strip():
                 continue
                 
-            # 处理特殊命令
+            # Process special commands
             if user_input.lower() == 'stop':
-                # 终止当前正在运行的命令和所有后续操作
+                # Terminate current running command and all subsequent operations
                 if terminate_current_command():
-                    console.print("[bold yellow]已终止当前命令和所有后续操作[/bold yellow]")
+                    console.print("[bold yellow]Terminated current command and all subsequent operations[/bold yellow]")
                 else:
-                    console.print("[yellow]当前没有正在运行的命令[/yellow]")
+                    console.print("[yellow]No command currently running[/yellow]")
                 continue
                 
-            # 在每次新的用户输入前重置停止标志
+            # Reset stop flag before each new user input
             reset_stop_flag()
                 
-            # 去除用户输入最前面的空格
+            # Remove leading whitespace from user input
             user_input = user_input.lstrip()
                 
             # Process the input
@@ -332,7 +382,7 @@ TERMINAL_AGENT_MODEL=gpt-4
             
         except KeyboardInterrupt:
             console.print("\n[bold yellow]Interrupted by user[/bold yellow]")
-            # 终止当前命令
+            # Terminate current command
             terminate_current_command()
             continue
         except EOFError:
