@@ -81,8 +81,15 @@ git clone https://github.com/SagesAi/terminal-agent.git
 cd terminal-agent
 ```
 
-2. Install the package and dependencies
+2. (Optional) Create a Python 3.12 environment using conda
 ```bash
+conda create -n terminal-agent python=3.12
+conda activate terminal-agent
+```
+
+3. Install the package and dependencies
+```bash
+pip install -r requirements.txt
 pip install -e .
 ```
 
@@ -158,6 +165,49 @@ TERMINAL_AGENT_PROVIDER=vllm
 TERMINAL_AGENT_MODEL=modelname
 ```
 
+## Key Features
+
+### User and AI Mode Switching
+
+Terminal Agent supports seamless switching between AI assistant mode and direct user command mode:
+
+```
+# AI Mode (default)
+[Terminal Agent] > Find large log files and compress them
+
+# Switch to User Mode
+[Terminal Agent] > @user
+
+# Direct command execution in User Mode
+[Terminal Agent] > ls -la
+
+# Switch back to AI Mode
+[Terminal Agent] > @ai
+```
+
+### Code LSP Support
+
+Terminal Agent includes Language Server Protocol (LSP) integration for intelligent code analysis:
+
+- Syntax error detection
+- Code completion suggestions
+- Type checking
+- Reference finding
+- Semantic analysis
+
+For detailed installation and configuration of code analysis tools, see:
+- [Code Analysis Tools (English)](docs/code_analysis_en.md)
+- [代码分析工具 (中文)](docs/code_analysis.md)
+
+### Memory System
+
+The built-in memory system enables Terminal Agent to:
+
+- Remember context across multiple interactions
+- Intelligently compress and prioritize important information
+- Recall previous commands and their outcomes
+- Maintain awareness of user preferences and environment details
+
 ## Usage
 
 ### Basic Usage
@@ -183,6 +233,21 @@ terminal-agent
 - Software Installation
 ```
 [Terminal Agent] > Install Docker on my system
+```
+
+- Code Repository Analysis
+```
+[Terminal Agent] > Analyze this Python repository and summarize its structure
+```
+
+- Unit Test Generation
+```
+[Terminal Agent] > Generate unit tests for the functions in utils/helpers.py
+```
+
+- Code Refactoring
+```
+[Terminal Agent] > Refactor this function to improve performance and readability
 ```
 
 
