@@ -16,6 +16,18 @@ from typing import Dict, Any, Optional, Union, List
 # Import command forwarder for remote file operations
 from terminal_agent.utils.command_forwarder import forwarder, remote_file_operation
 
+# Import diff generation and rendering components
+try:
+    from terminal_agent.diff.diff_generator import DiffGenerator
+    from terminal_agent.diff.diff_renderer import DiffRenderer
+    HAS_DIFF_TOOLS = True
+    logger = logging.getLogger(__name__)
+    logger.info("Successfully imported diff tools")
+except ImportError as e:
+    HAS_DIFF_TOOLS = False
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Failed to import diff tools: {str(e)}")
+
 # Configure logging
 logger = logging.getLogger(__name__)
 
@@ -459,10 +471,10 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                         
                         # Try golangci-lint for more comprehensive linting
                         try:
-                            # Use golangci-lint run with minimal checks that work on partial files
+                            # Use golangci-lint run with default enabled linters
                             golangci_result = subprocess.run(
-                                ['golangci-lint', 'run', '--no-config', '--disable-all', 
-                                 '--enable=errcheck,gosimple,govet,ineffassign,staticcheck', temp_path],
+                                ['golangci-lint', 'run', '--no-config', 
+                                 '--enable=errcheck,govet,ineffassign,staticcheck', temp_path],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                                 universal_newlines=True,
                                 timeout=5  # Add timeout to prevent hanging
@@ -517,6 +529,101 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                     "modified": add_line_numbers(updated_preview, max(1, start_line-3))
                 }
             }
+            
+            # Generate enhanced diff visualization if diff tools are available
+            logger.debug(f"HAS_DIFF_TOOLS status: {HAS_DIFF_TOOLS}")
+            if HAS_DIFF_TOOLS:
+                try:
+                    # Get file extension for language detection
+                    _, ext = os.path.splitext(file_path)
+                    language = ext[1:] if ext else None
+                    logger.info(f"Detected language from file extension: {language}")
+                    
+                    # Create diff generator and renderer
+                    logger.info("Initializing DiffGenerator and DiffRenderer")
+                    diff_gen = DiffGenerator()
+                    diff_renderer = DiffRenderer()
+                    logger.info("Successfully initialized diff tools")
+                    
+                    # Generate unified diff
+                    unified_diff = diff_gen.generate_unified_diff(
+                        "\n".join(lines),
+                        "\n".join(updated_lines),
+                        f"{file_path} (before)",
+                        f"{file_path} (after)"
+                    )
+                    
+                    # Render the diff
+                    rendered_diff = diff_renderer.render_unified_diff(unified_diff, language=language)
+                    
+                    # Get diff statistics
+                    diff_stats = diff_gen.get_diff_stats("\n".join(lines), "\n".join(updated_lines))
+                    
+                    # Display the diff directly to console for immediate feedback using Rich
+                    try:
+                        from rich.console import Console
+                        from rich.panel import Panel
+                        from rich.text import Text
+                        from rich.table import Table
+                        
+                        console = Console()
+                        
+                        # Create a panel with the diff
+                        diff_text = Text(rendered_diff)
+                        panel = Panel(
+                            diff_text,
+                            title=f"[bold blue]Changes to {file_path}[/bold blue]",
+                            border_style="blue",
+                            expand=False
+                        )
+                        
+                        # Create a table for statistics
+                        stats_table = Table(show_header=False, box=None, padding=(0, 1))
+                        stats_table.add_column("Stat", style="cyan")
+                        stats_table.add_column("Value", style="green")
+                        stats_table.add_row("Added", str(diff_stats['added']))
+                        stats_table.add_row("Removed", str(diff_stats['removed']))
+                        stats_table.add_row("Changed", str(diff_stats['changed']))
+                        
+                        # Display everything
+                        console.print("\n")
+                        console.print(panel)
+                        console.print("[bold cyan]Diff Statistics:[/bold cyan]")
+                        console.print(stats_table)
+                        console.print("\n")
+                    except ImportError:
+                        # Fallback to simple print if Rich is not available
+                        print("\n" + "=" * 40)
+                        print(f"Changes to {file_path}:")
+                        print("=" * 40)
+                        print(rendered_diff)
+                        print(f"Stats: {diff_stats['added']} lines added, {diff_stats['removed']} lines removed, {diff_stats['changed']} lines changed")
+                        print("=" * 40 + "\n")
+                    
+                    # Add enhanced diff to result (for API consumers)
+                    result["enhanced_diff"] = {
+                        "unified": rendered_diff,
+                        "stats": diff_stats
+                    }
+                    
+                    # Generate side-by-side diff for logging purposes only
+                    # We don't include it in the result as it can be too verbose for terminal output
+                    try:
+                        diff_renderer.render_side_by_side_diff(
+                            original_preview,
+                            updated_preview,
+                            f"{file_path} (before)",
+                            f"{file_path} (after)",
+                            language=language
+                        )
+                        # Note: We intentionally don't add side-by-side diff to the result
+                        # as it can make the output too verbose and hard to read in terminals
+                    except Exception as e:
+                        logger.debug(f"Side-by-side diff generation failed: {str(e)}")
+                except Exception as e:
+                    logger.warning(f"Enhanced diff generation failed: {str(e)}")
+                    logger.warning(f"Exception traceback: {traceback.format_exc()}")
+                    # This is non-critical, so we continue without enhanced diff
             
             # Add warning message if old_content verification failed
             if warning_message:
