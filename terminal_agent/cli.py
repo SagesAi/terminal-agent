@@ -16,6 +16,8 @@ from prompt_toolkit.styles import Style
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.filters import Condition
 from prompt_toolkit.formatted_text import HTML
+from prompt_toolkit.completion import Completer, Completion, PathCompleter
+from prompt_toolkit.document import Document
 import typer
 from datetime import datetime
 
@@ -33,6 +35,90 @@ style = Style.from_dict({
     'multiline': 'ansiyellow',
     'continuation': 'ansiblue',
 })
+
+# Create file auto-completer
+class FileCompleter(Completer):
+    """File auto-completer that supports file name completion triggered by @file"""
+    
+    def __init__(self):
+        self.path_completer = PathCompleter()
+        self.max_depth = 3  # Maximum depth for recursive search
+    
+    def get_all_files(self, directory, max_depth=3, current_depth=0):
+        """Recursively get all files and directories"""
+        files = []
+        if current_depth > max_depth:
+            return files
+            
+        try:
+            for item in os.listdir(directory):
+                if item in ['.', '..', '.git', '__pycache__', 'venv', '.env', 'node_modules']:
+                    continue
+                    
+                full_path = os.path.join(directory, item)
+                rel_path = os.path.relpath(full_path, os.getcwd())
+                
+                # If in current directory, don't show path
+                if rel_path == item:
+                    display_path = item
+                else:
+                    display_path = rel_path
+                    
+                files.append((display_path, full_path))
+                
+                # Recursively process subdirectories
+                if os.path.isdir(full_path):
+                    files.extend(self.get_all_files(full_path, max_depth, current_depth + 1))
+        except (PermissionError, FileNotFoundError):
+            pass
+            
+        return files
+    
+    def get_completions(self, document, complete_event):
+        text = document.text
+        
+        # Check if completion is triggered by @file
+        if text.strip().lower().startswith("@file"):
+            # If only @file is entered, complete with all files in current directory
+            if text.strip().lower() == "@file":
+                # Recursively get all files in current directory
+                try:
+                    current_dir = os.getcwd()
+                    all_files = self.get_all_files(current_dir, self.max_depth)
+                    all_files.sort(key=lambda x: x[0])  # Sort by relative path
+                    
+                    # Provide file completion
+                    for display_path, full_path in all_files:
+                        # Calculate display style: add / for directories, not for files
+                        is_dir = os.path.isdir(full_path)
+                        display = display_path + "/" if is_dir else display_path
+                        
+                        # Return completion item, format as @filename
+                        yield Completion(
+                            text=display_path,  # Actual text to insert
+                            start_position=-4,  # Replace from @, keep the @
+                            display=display,  # Text to display
+                            style='fg:green' if is_dir else 'fg:cyan'  # Directories in green, files in cyan
+                        )
+                except Exception as e:
+                    console.print(f"[bold red]Error listing files: {str(e)}[/bold red]")
+            # If starts with @file:, complete the path
+            elif text.strip().lower().startswith("@file:"):
+                # Extract path part
+                path = text.strip()[6:]
+                
+                # Create a new document object containing only the path part
+                path_document = Document(path)
+                
+                # Use PathCompleter to complete the path
+                for completion in self.path_completer.get_completions(path_document, complete_event):
+                    # Adjust the start position of completion item
+                    yield Completion(
+                        text=completion.text,
+                        start_position=completion.start_position,
+                        display=completion.display,
+                        style=completion.style
+                    )
 
 app = typer.Typer()
 
@@ -320,9 +406,17 @@ TERMINAL_AGENT_MODEL=gpt-4
     
     @kb.add('enter')
     def _(event):
-        """Enter key submits the input"""
-        # Submit input regardless of whether it's multiline
-        event.current_buffer.validate_and_handle()
+        """Enter key submits input"""
+        # Check if file completion is in progress
+        buffer = event.current_buffer
+        completing = buffer.complete_state is not None
+        
+        # If in completion mode, Enter key only accepts completion result, doesn't submit input
+        if completing:
+            buffer.complete_state = None
+        else:
+            # Not in completion state, submit input normally
+            buffer.validate_and_handle()
     
     # Create prompt message function
     def get_prompt_tokens():
@@ -330,6 +424,9 @@ TERMINAL_AGENT_MODEL=gpt-4
             return HTML('<ansicyan><b>[Terminal Agent]</b></ansicyan> <ansiyellow><b>[Multiline]</b></ansiyellow> > ')
         else:
             return HTML('<ansicyan><b>[Terminal Agent]</b></ansicyan> > ')
+    
+    # 初始化文件补全器
+    file_completer = FileCompleter()
     
     # Initialize PromptSession
     session = PromptSession(
@@ -340,7 +437,8 @@ TERMINAL_AGENT_MODEL=gpt-4
         key_bindings=kb,
         enable_open_in_editor=True,  # Allow editing in external editor
         input_processors=[],  # Can add custom input processors
-        complete_in_thread=True  # Execute auto-completion in thread to avoid blocking
+        complete_in_thread=True,  # Execute auto-completion in thread to avoid blocking
+        completer=file_completer  # 使用自定义的文件补全器
     )
     
     # Flag to track if currently processing command output

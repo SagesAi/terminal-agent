@@ -6,8 +6,11 @@ Core agent module for Terminal Agent
 import os
 import platform
 import subprocess
+import re
 from typing import Dict, List, Any, Optional
 from rich.console import Console
+from rich.table import Table
+from rich.prompt import Prompt
 
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.system_info import get_system_info
@@ -73,11 +76,12 @@ class TerminalAgent:
             if exit_code == 0:
                 self.system_info["current_working_directory"] = stdout.strip()
             else:
-                logger.warning(f"Failed to get remote working directory: {stderr}")
+                console.print(f"[bold red]Failed to get remote working directory: {stderr}[/bold red]")
                 self.system_info["current_working_directory"] = "<unknown remote directory>"
         else:
             # Get local working directory
             self.system_info["current_working_directory"] = os.getcwd()
+        
         # Handle exit command
         if user_input.lower() in ["exit", "quit"]:
             exit(0)
@@ -88,9 +92,69 @@ class TerminalAgent:
             
         # Handle mode switching commands
         command_handled = False
-        ai_command = None
-        
-        if user_input.strip().lower() == "@user":
+        ai_command = None  # Initialize ai_command variable
+        # Handle @file syntax, directly use original input without generating additional ai_command
+        # Handle @file or @file: commands (without path)
+        if user_input.strip().lower() == "@file:" or user_input.strip().lower() == "@file":
+            # List files in current directory for selection
+            selected_file = self._list_and_select_files()
+            if selected_file:
+                # Use the selected file path directly
+                self.user_mode = False  # Switch to AI mode
+                console.print(f"[bold green]Processing file: [bold cyan]{selected_file}[/bold cyan][/bold green]")
+                # Replace user input with the selected file path
+                user_input = f"@{selected_file}"
+                command_handled = False  # Continue processing
+            else:
+                console.print("[yellow]No file selected, operation cancelled[/yellow]")
+                command_handled = True
+                return
+        # Handle @file:/path/to/file.py or @file/path/to/file.py syntax
+        elif user_input.strip().lower().startswith("@file:") or user_input.strip().lower().startswith("@file/"):
+            # Extract file path and possible additional content
+            original_input = user_input.strip()
+            prefix_end = 6  # Length of @file: or @file/
+            remaining = original_input[prefix_end:].strip()
+            file_path = ""
+            extra_content = ""
+            
+            # Handle file paths wrapped in quotes
+            if remaining.startswith('"') or remaining.startswith("'"):
+                quote_char = remaining[0]  # Get quote type
+                # Find matching end quote
+                quote_end_pos = remaining[1:].find(quote_char)
+                
+                if quote_end_pos != -1:
+                    # Extract file path inside quotes
+                    file_path = remaining[1:quote_end_pos+1]
+                    # Extract additional content after end quote
+                    if len(remaining) > quote_end_pos + 2:
+                        extra_content = remaining[quote_end_pos+2:].strip()
+                else:
+                    # If no end quote found, use all content as file path
+                    file_path = remaining[1:]
+            else:
+                # No quotes, use space as separator
+                space_pos = remaining.find(' ')
+                
+                if space_pos == -1:  # No additional content
+                    file_path = remaining
+                else:  # Has additional content
+                    file_path = remaining[:space_pos].strip()
+                    extra_content = remaining[space_pos:].strip()
+            
+            if os.path.exists(file_path):
+                # Use the specified file path directly and keep additional content
+                self.user_mode = False  # Switch to AI mode
+                console.print(f"[bold green]Processing file: [bold cyan]{file_path}[/bold cyan][/bold green]")
+                # Replace user input with file path and keep additional content
+                user_input = f"@{file_path}{' ' + extra_content if extra_content else ''}"
+                command_handled = False  # Continue processing
+            else:
+                console.print(f"[bold red]File {file_path} does not exist[/bold red]")
+                command_handled = True
+                return
+        elif user_input.strip().lower() == "@user":
             # Switch to User Mode
             self.user_mode = True
             console.print("[bold green]Switched to User Mode. Type commands directly.[/bold green]")
@@ -185,6 +249,8 @@ class TerminalAgent:
         - `@user` - Switch to User Mode
         - `@ai` - Switch to AI Mode
         - `@ai <command>` - Switch to AI Mode and execute the specified command
+        - `@file:` - List files in current directory and select one for AI to analyze
+        - `@file:/path/to/file.py` - Directly specify a file for AI to analyze
         
         ## Example Queries:
         
@@ -200,3 +266,79 @@ class TerminalAgent:
         """
         
         console.print(help_text)
+        
+    def _list_and_select_files(self) -> Optional[str]:
+        """
+        List files in the current directory and allow user to select one
+        
+        Returns:
+            Optional[str]: Selected file path or None if cancelled
+        """
+        try:
+            # Determine current directory
+            current_dir = self.system_info.get("current_working_directory", os.getcwd())
+            
+            # Check if remote execution is enabled
+            if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
+                # Get file list from remote system
+                exit_code, stdout, stderr = forwarder.forward_command("ls -la")
+                if exit_code != 0:
+                    console.print(f"[bold red]Failed to list remote directory: {stderr}[/bold red]")
+                    return None
+                    
+                # Parse ls output
+                files = []
+                for line in stdout.strip().split('\n'):
+                    if line.startswith('total '):
+                        continue
+                    parts = line.split()
+                    if len(parts) >= 9:
+                        # Extract filename (could be multiple parts if it has spaces)
+                        filename = ' '.join(parts[8:])
+                        if filename not in ['.', '..']:
+                            files.append(filename)
+            else:
+                # Get file list from local system
+                files = [f for f in os.listdir(current_dir) if f not in ['.', '..']]  
+            
+            # Sort files alphabetically
+            files.sort()
+            
+            # Create a table to display files
+            table = Table(title=f"Files in {current_dir}")
+            table.add_column("#", style="cyan")
+            table.add_column("File Name", style="green")
+            table.add_column("Type", style="yellow")
+            
+            # Add files to table
+            for i, file in enumerate(files, 1):
+                file_path = os.path.join(current_dir, file)
+                file_type = "Directory" if os.path.isdir(file_path) else "File"
+                table.add_row(str(i), file, file_type)
+            
+            # Display table
+            console.print(table)
+            
+            # Prompt user to select a file
+            console.print("[bold cyan]Please enter file number to select, or 'q' to cancel:[/bold cyan]")
+            choice = Prompt.ask(">", default="q")
+            
+            # Handle user choice
+            if choice.lower() == 'q':
+                return None
+                
+            try:
+                index = int(choice) - 1
+                if 0 <= index < len(files):
+                    selected_file = os.path.join(current_dir, files[index])
+                    return selected_file
+                else:
+                    console.print("[bold red]Invalid selection[/bold red]")
+                    return None
+            except ValueError:
+                console.print("[bold red]Invalid input[/bold red]")
+                return None
+                
+        except Exception as e:
+            console.print(f"[bold red]Error listing files: {str(e)}[/bold red]")
+            return None
