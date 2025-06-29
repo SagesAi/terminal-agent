@@ -154,6 +154,51 @@ class TerminalAgent:
                 console.print(f"[bold red]File {file_path} does not exist[/bold red]")
                 command_handled = True
                 return
+        # Handle simple @ syntax (e.g. @path/to/file.py)
+        elif user_input.strip().startswith("@") and not user_input.strip().lower().startswith("@user") and not user_input.strip().lower().startswith("@ai"):
+            # Extract file path and possible additional content
+            original_input = user_input.strip()
+            remaining = original_input[1:].strip()  # Remove @ and any leading spaces
+            file_path = ""
+            extra_content = ""
+            
+            # Handle file paths wrapped in quotes
+            if remaining.startswith('"') or remaining.startswith("'"):
+                quote_char = remaining[0]  # Get quote type
+                # Find matching end quote
+                quote_end_pos = remaining[1:].find(quote_char)
+                
+                if quote_end_pos != -1:
+                    # Extract file path inside quotes
+                    file_path = remaining[1:quote_end_pos+1]
+                    # Extract additional content after end quote
+                    if len(remaining) > quote_end_pos + 2:
+                        extra_content = remaining[quote_end_pos+2:].strip()
+                else:
+                    # If no end quote found, use all content as file path
+                    file_path = remaining[1:]
+            else:
+                # No quotes, use space as separator
+                space_pos = remaining.find(' ')
+                
+                if space_pos == -1:  # No additional content
+                    file_path = remaining
+                else:  # Has additional content
+                    file_path = remaining[:space_pos].strip()
+                    extra_content = remaining[space_pos:].strip()
+            
+            if os.path.exists(file_path):
+                # Use the specified file path directly and keep additional content
+                self.user_mode = False  # Switch to AI mode
+                console.print(f"[bold green]Processing file: [bold cyan]{file_path}[/bold cyan][/bold green]")
+                # Replace user input with file path and keep additional content
+                user_input = f"@{file_path}{' ' + extra_content if extra_content else ''}"
+                command_handled = False  # Continue processing
+            else:
+                console.print(f"[bold red]File {file_path} does not exist[/bold red]")
+                command_handled = True
+                return
+                
         elif user_input.strip().lower() == "@user":
             # Switch to User Mode
             self.user_mode = True

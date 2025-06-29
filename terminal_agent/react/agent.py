@@ -878,22 +878,46 @@ Remember:
             messages.append({"role": role, "content": message.content})
         return messages
 
-def shell_command_tool(command: str) -> str:
+def shell_command_tool(command) -> str:
     """
     Executes a shell command and returns the output.
 
     Args:
-        command (str): The shell command to execute.
+        command: The shell command to execute. Must be a dict with 'command' key and optional 'background' key.
+            - 'command': The shell command string to execute (required)
+            - 'background': Boolean indicating whether to run the command in the background (optional, default: False)
 
     Returns:
         str: The output of the command.
     """
     try:
+        # Ensure the command is in dictionary format
+        if not isinstance(command, dict):
+            return "Error: Invalid command format. Expected a dictionary with 'command' key. Example: {'command': 'ls -la', 'background': false}"
+        
+        # Check if the dictionary contains the required 'command' key
+        if 'command' not in command:
+            return "Error: Missing 'command' key in the input dictionary. Example: {'command': 'ls -la', 'background': false}"
+        
+        # Extract the command string and background execution flag
+        cmd_str = command['command']
+        background = command.get('background', False)
+        
+        # If background execution mode is enabled, modify the command format
+        if background:
+            # On Linux/macOS, use nohup and & to run commands in the background
+            # Redirect standard output and error output to /dev/null or a specified log file
+            cmd_str = f"nohup {cmd_str} > /dev/null 2>&1 &"
+            console.print(f"[bold cyan]Running command in background: {cmd_str}[/bold cyan]")
+        
         # Execute the command
-        return_code, output, _ = execute_command(command)
+        return_code, output, _ = execute_command(cmd_str)
 
         # Return the command output
-        return f"Return Code: {return_code}\nOutput:\n{output}"
+        if background:
+            return f"Command started in background. Return Code: {return_code}"
+        else:
+            return f"Return Code: {return_code}\nOutput:\n{output}"
     except Exception as e:
         return f"Error executing command: {str(e)}"
 

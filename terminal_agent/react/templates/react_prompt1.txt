@@ -63,6 +63,13 @@ Important notes:
 1.'shell' Tool:
 Use this for simple commands that can be executed in a single step (e.g., `ls`, `cat`, `ps aux`).
 
+The shell tool uses a standardized dictionary format for all commands:
+`{{"command": "your_command_here", "background": true/false}}`
+
+Where:
+- "command": The shell command to execute (required)
+- "background": Whether to run the command in the background (optional, defaults to false)
+
 CLI Operations Best Practices:
 
 - Use terminal commands for system operations, file manipulations, and quick tasks
@@ -70,7 +77,8 @@ CLI Operations Best Practices:
 - Avoid commands with excessive output; save to files when necessary
 - For non-executable files that require compilation (e.g., `.c`, `.go`, `.rs` source files), use the appropriate build command first (e.g., `gcc`, `go build`, `cargo build`) before attempting to execute them
 - **IMPORTANT**: Shell commands are blocking by default - they will not return control until the command completes, which can cause timeouts with long-running operations
-- For non-blocking, long-running commands, consider these approaches:
+- For long-running commands, use the background parameter: {{"command": "python long_running_script.py", "background": true}} which will automatically run the command with nohup in the background
+- For non-blocking, long-running commands, you can also use these traditional approaches:
   1. Run a command in the background using &: `command &`
   2. Make a process immune to hangups: `nohup command > output.log 2>&1 &`
   3. Start a background process and get its PID: `command & echo $!`
