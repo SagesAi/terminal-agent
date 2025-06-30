@@ -102,8 +102,9 @@ class TerminalAgent:
                 # Use the selected file path directly
                 self.user_mode = False  # Switch to AI mode
                 console.print(f"[bold green]Processing file: [bold cyan]{selected_file}[/bold cyan][/bold green]")
-                # Replace user input with the selected file path
-                user_input = f"@{selected_file}"
+                # Replace user input with the selected file path, but don't include @ in the path
+                # Format as "Analyze file: {path}" to clearly indicate it's a file without using @
+                user_input = f"{selected_file}"
                 command_handled = False  # Continue processing
             else:
                 console.print("[yellow]No file selected, operation cancelled[/yellow]")
@@ -148,7 +149,7 @@ class TerminalAgent:
                 self.user_mode = False  # Switch to AI mode
                 console.print(f"[bold green]Processing file: [bold cyan]{file_path}[/bold cyan][/bold green]")
                 # Replace user input with file path and keep additional content
-                user_input = f"@{file_path}{' ' + extra_content if extra_content else ''}"
+                user_input = f"{file_path}{' ' + extra_content if extra_content else ''}"
                 command_handled = False  # Continue processing
             else:
                 console.print(f"[bold red]File {file_path} does not exist[/bold red]")
@@ -192,7 +193,7 @@ class TerminalAgent:
                 self.user_mode = False  # Switch to AI mode
                 console.print(f"[bold green]Processing file: [bold cyan]{file_path}[/bold cyan][/bold green]")
                 # Replace user input with file path and keep additional content
-                user_input = f"@{file_path}{' ' + extra_content if extra_content else ''}"
+                user_input = f"{file_path}{' ' + extra_content if extra_content else ''}"
                 command_handled = False  # Continue processing
             else:
                 console.print(f"[bold red]File {file_path} does not exist[/bold red]")
