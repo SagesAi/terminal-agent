@@ -119,7 +119,8 @@ class DiffGenerator:
     @staticmethod
     def generate_unified_diff(old_content: Union[str, List[str]], new_content: Union[str, List[str]], 
                             from_file: str = "old", to_file: str = "new", 
-                            context_lines: int = 3) -> str:
+                            context_lines: int = 3,
+                            ignore_whitespace_only_changes: bool = True) -> str:
         """Generate a unified diff between old and new content.
         
         Args:
@@ -128,6 +129,7 @@ class DiffGenerator:
             from_file: Label for the old file in the diff header
             to_file: Label for the new file in the diff header
             context_lines: Number of context lines to include
+            ignore_whitespace_only_changes: Whether to ignore changes that only affect whitespace (default: True)
             
         Returns:
             str: Unified diff as a string
@@ -135,6 +137,7 @@ class DiffGenerator:
         # Try git diff first if we're in a git repo
         if DiffGenerator.is_git_repo():
             logger.debug("Using git diff for generating unified diff")
+            # TODO: Add ignore_whitespace_only_changes parameter to generate_git_diff if needed
             git_diff = DiffGenerator.generate_git_diff(
                 old_content, new_content, from_file, to_file, context_lines
             )
@@ -155,15 +158,73 @@ class DiffGenerator:
             new_lines = new_content.splitlines(True)
         else:
             new_lines = new_content
+            
+        # If ignore_whitespace_only_changes is enabled, pre-process the lines
+        if ignore_whitespace_only_changes:
+            # Create a copy of the lines for comparison
+            old_lines_for_diff = []
+            new_lines_for_diff = []
+            
+            # Process old lines
+            for line in old_lines:
+                # If line is whitespace-only, replace with a special marker
+                if line.strip() == "":
+                    old_lines_for_diff.append(line)  # Keep original line for output
+                else:
+                    old_lines_for_diff.append(line)
+                    
+            # Process new lines
+            for line in new_lines:
+                # If line is whitespace-only, replace with a special marker
+                if line.strip() == "":
+                    new_lines_for_diff.append(line)  # Keep original line for output
+                else:
+                    new_lines_for_diff.append(line)
+        else:
+            old_lines_for_diff = old_lines
+            new_lines_for_diff = new_lines
         
         # Generate unified diff
         diff = difflib.unified_diff(
-            old_lines,
-            new_lines,
+            old_lines_for_diff,
+            new_lines_for_diff,
             fromfile=from_file,
             tofile=to_file,
             n=context_lines
         )
+        
+        # Filter out whitespace-only changes if requested
+        if ignore_whitespace_only_changes:
+            filtered_diff = []
+            skip_next = False
+            
+            for line in diff:
+                # Always include header lines
+                if line.startswith('---') or line.startswith('+++') or line.startswith('@@'):
+                    filtered_diff.append(line)
+                    continue
+                    
+                # Check if this is a removed line that is whitespace-only
+                if line.startswith('-'):
+                    # Strip the '-' prefix and check if the rest is just whitespace
+                    content = line[1:]
+                    if content.strip() == '':
+                        skip_next = True
+                        continue
+                    
+                # Check if this is an added line that is whitespace-only and follows a skipped removal
+                if skip_next and line.startswith('+'):
+                    # Strip the '+' prefix and check if the rest is just whitespace
+                    content = line[1:]
+                    if content.strip() == '':
+                        skip_next = False
+                        continue
+                    
+                # Include all other lines
+                filtered_diff.append(line)
+                skip_next = False
+                
+            diff = filtered_diff
         
         # Join the diff lines into a single string
         return "".join(diff)

@@ -119,9 +119,12 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
     Args:
         query: JSON string or dictionary with the following fields:
             - file_path: Path to the file to edit (required)
-            - start_line: Starting line number (1-based indexing) (required)
-            - end_line: Ending line number (1-based indexing, inclusive) (required)
-            - new_content: The new code to replace the specified section (required)
+            - model: Mode of operation, either "replace" or "add" (optional, default: "replace")
+            - new_content: The new code to add or replace (required)
+            - old_content: The existing code to be replaced (required for "replace" mode)
+                          Should exactly match the content in the file, including whitespace and indentation
+            - start_line: Starting line number (1-based indexing) (required for "add" mode, optional for "replace" mode)
+            - end_line: Ending line number (1-based indexing, inclusive) (optional for "replace" mode)
             - language: Programming language of the file (optional, default: auto-detect)
             - description: Description of the edit (optional)
             - check_syntax: Whether to check syntax after edit (optional, default: True)
@@ -172,22 +175,23 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
             logger.error(f"Invalid model parameter: {model}. Must be 'replace' or 'add'")
             return json.dumps({"error": f"Invalid model parameter: {model}. Must be 'replace' or 'add'"})
         
-        # Validate parameters based on the following rules:
-        # 1. For add mode, start_line is required
-        # 2. For replace mode, old_content is required, while start_line and end_line are optional
+        # Validate parameters based on the model type
         if model == "add":
+            # For add mode, only start_line is required
             if start_line is None:
                 logger.error("Missing required parameter: start_line for add mode")
                 return json.dumps({"error": "Missing required parameter: start_line for add mode"})
         else:  # replace mode
+            # For replace mode, only old_content and new_content are required
             if old_content is None:
                 logger.error("Missing required parameter: old_content for replace mode")
-                return json.dumps({"error": "Missing required parameter: old_content for replace mode"})
+                error_msg = "Missing required parameter: old_content for replace mode. "
+                error_msg += "Please provide the exact code block to be replaced, including proper indentation and whitespace."
+                return json.dumps({"error": error_msg})
             
-            # start_line and end_line are optional, but if start_line is provided, end_line must also be provided
-            if start_line is not None and end_line is None:
-                logger.error("Missing required parameter: end_line when start_line is provided")
-                return json.dumps({"error": "Missing required parameter: end_line when start_line is provided"})
+            # start_line and end_line are completely optional in replace mode
+            # old_content matching is the only way to identify the code to replace
+            # No additional validation needed here as they'll be checked later if used
         
         # Clean and normalize the file path
         file_path = clean_path(file_path)
@@ -251,13 +255,14 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                         
                 if not found:
                     logger.warning(f"Could not find old_content in file {file_path}")
-                    warning_message = f"Warning: Could not find the exact content to replace in the file. "
-                    warning_message += "If line numbers were provided, they will be used instead."
                     
-                    # If line numbers were not provided, return an error
-                    if start_line is None or end_line is None:
-                        logger.error("Could not find old_content and no line numbers were provided")
-                        return json.dumps({"error": "Could not find the content to replace in the file and no line numbers were provided"})
+                    # Return a helpful error message
+                    error_msg = "Could not find the content to replace in the file. "
+                    error_msg += "To fix this issue, please ensure that:\n"
+                    error_msg += "1. The old_content exactly matches the content in the file (including whitespace and indentation)\n"
+                    error_msg += "2. You provide complete code blocks with sufficient context\n"
+                    error_msg += "3. You include unique identifiers like function names or class names\n"
+                    return json.dumps({"error": error_msg})
             else:
                 # Determine start and end line indices based on character position
                 cum_len = 0
@@ -550,7 +555,8 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                         "\n".join(lines),
                         "\n".join(updated_lines),
                         f"{file_path} (before)",
-                        f"{file_path} (after)"
+                        f"{file_path} (after)",
+                        ignore_whitespace_only_changes=True
                     )
                     
                     # Render the diff

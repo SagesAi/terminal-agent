@@ -334,24 +334,18 @@ IMPORTANT GUIDELINES FOR CODE EDITING:
 
 6. When replacing code, ensure your new_content is a complete, syntactically valid replacement that can stand on its own
 
-Example usage (replace mode with old_content - PREFERRED METHOD):
-{{
-  "file_path": "/path/to/file.py",
-  "model": "replace",
-  "new_content": "def new_function():\n    print('This is a new function')\n    return True\n",
-  "old_content": "def old_function():\n    print('This is the old function')\n    return False\n",
-  "language": "python",
-  "description": "Replace old function with new implementation"
-}}
+IMPORTANT GUIDELINES FOR CODE EDITING:
+1. Always provide COMPLETE code blocks with sufficient context (entire functions/methods/classes)
+2. Include unique identifiers like function names, class names, or distinctive comments
+3. Maintain exact indentation and whitespace as in the original file
+4. Ensure old_content is an EXACT match to what's in the file
 
-Example usage (replace mode with line numbers - FALLBACK METHOD ONLY):
+Example usage (replace mode):
 {{
   "file_path": "/path/to/file.py",
   "model": "replace",
-  "start_line": 10,
-  "end_line": 15,
-  "old_content": "def old_function():\n    print('This is the old function')\n    return False\n",
   "new_content": "def new_function():\n    print('This is a new function')\n    return True\n",
+  "old_content": "def old_function():\n    print('This is the old function')\n    return False\n",
   "language": "python",
   "description": "Replace old function with new implementation"
 }}
