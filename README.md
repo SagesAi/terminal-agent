@@ -6,11 +6,13 @@ A powerful, intelligent agent for the terminal that supports natural language in
   <img src="./images/terminal_agent_logo.png" alt="Terminal Agent Logo" width="200"/>
 </p>
 
+
 <p align="center">
   <img src="./images/demo.gif" alt="Terminal Agent Demo" width="700"/>
 </p>
 
 ## Features
+
 
 ### 1. System Diagnostics
 - Analyze system issues described in natural language
@@ -198,6 +200,8 @@ Terminal Agent includes Language Server Protocol (LSP) integration for intellige
 For detailed installation and configuration of code analysis tools, see:
 - [Code Analysis Tools (English)](docs/code_analysis_en.md)
 - [代码分析工具 (中文)](docs/code_analysis.md)
+
+https://github.com/user-attachments/assets/76cf208b-a307-49d8-a5a1-82d44f152dbb
 
 ### Memory System
 
