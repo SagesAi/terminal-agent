@@ -199,12 +199,13 @@ class LLMClient:
             console.print(f"[dim]{traceback.format_exc()}[/dim]")
             return f"处理您的请求时遇到错误: {str(e)}"
     
-    def call_with_messages(self, messages: List[Dict[str, str]]) -> str:
+    def call_with_messages(self, messages: List[Dict[str, str]], show_progress: bool = True) -> str:
         """
         Call the LLM API with a list of messages
         
         Args:
             messages: List of message dictionaries with 'role' and 'content' keys
+            show_progress: Whether to show the "Thinking..." progress bar, defaults to True
             
         Returns:
             str: The model's response text
@@ -217,24 +218,28 @@ class LLMClient:
             if should_stop_operations():
                 return "Operation stopped by user, skipping API call."
             
-            # Display thinking progress bar
-            with Progress() as progress:
-                task = progress.add_task("[cyan]Thinking...", total=None)
-                
-                try:
-                    # Call the API
-                    response = self.provider.call_with_messages(messages)
-            
+            # Check if we should display the thinking progress bar
+            if show_progress:
+                with Progress() as progress:
+                    task = progress.add_task("[cyan]Thinking...", total=None)
                     
-                    # Complete the progress bar
-                    progress.update(task, completed=100)
-                    
-                    return response
-                    
-                except Exception as e:
-                    # Complete the progress bar (with error)
-                    progress.update(task, completed=100)
-                    raise e
+                    try:
+                        # Call the API
+                        response = self.provider.call_with_messages(messages)
+        
+                        # Complete the progress bar
+                        progress.update(task, completed=100)
+                        
+                        return response
+                        
+                    except Exception as e:
+                        # Complete the progress bar (with error)
+                        progress.update(task, completed=100)
+                        raise e
+            else:
+                # Call the API without showing progress
+                response = self.provider.call_with_messages(messages)
+                return response
                 
         except ConnectionError as e:
             logger.error(f"Connection error with LLM API: {str(e)}")

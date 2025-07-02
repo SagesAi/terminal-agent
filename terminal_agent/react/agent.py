@@ -273,10 +273,34 @@ class ReActAgent:
             # 复制基本提示消息列表，避免修改原始列表
             prompt_messages = list(self.base_prompt_messages)
 
-            # 添加当前任务的本地消息历史
-            prompt_messages.extend(self._convert_history_to_messages())
-
-            logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {len(self.messages)} local messages")
+            # get history messages
+            history_messages = self._convert_history_to_messages()
+            
+            # check if need to compress messages
+            try:
+                # 
+                
+                # use context manager to compress messages
+                if hasattr(self, 'session_manager') and hasattr(self.session_manager, 'context_manager'):
+                    context_manager = self.session_manager.context_manager
+                    if context_manager and hasattr(context_manager, 'compress_react_messages'):
+                        # use context_manager's compress_react_messages method
+                        compressed_history = context_manager.compress_react_messages(
+                            messages=history_messages,
+                            model=self.model,
+                            recent_message_count=5
+                        )
+                        history_messages = compressed_history
+                else:
+                    logger.debug("no context manager")
+            except Exception as e:
+                logger.error(f"compress messages error: {e}")
+                # continue using original messages
+        
+            # add processed history messages
+            prompt_messages.extend(history_messages)
+            
+            logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {len(history_messages)} history messages")
             # Get the LLM's response using the message-based method
             response = self.llm_client.call_with_messages(prompt_messages)
             logger.debug(f"Thinking => {response}")

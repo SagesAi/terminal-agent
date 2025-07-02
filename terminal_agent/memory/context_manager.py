@@ -322,6 +322,99 @@ class ContextManager:
 
         return result
 
+    def compress_react_messages(self, messages: List[Dict], model: str = "gpt-4", 
+                          max_tokens_threshold: Optional[int] = None,
+                          recent_message_count: int = 5) -> List[Dict]:
+        """
+        Compress message history during React execution process, replacing older messages with summaries
+        
+        Args:
+            messages: List of message history
+            model: LLM model name
+            max_tokens_threshold: Token threshold, uses default threshold if None
+            recent_message_count: Number of recent messages to preserve
+            
+        Returns:
+            Compressed message list
+        """
+        # If no threshold specified, use default threshold
+        if max_tokens_threshold is None:
+            max_tokens_threshold = self.token_threshold
+            
+        # Estimate current message token count
+        current_tokens = self.get_token_count(messages, model)
+        
+        # If under threshold, return original messages
+        if current_tokens <= max_tokens_threshold:
+            return messages
+            
+        logger.info(f"Message history exceeds token threshold ({current_tokens} > {max_tokens_threshold}). Compressing...")
+        
+        # Preserve system messages
+        system_messages = [m for m in messages if m.get("role") == "system"]
+        
+        # Separate user and assistant messages
+        non_system_messages = [m for m in messages if m.get("role") != "system"]
+        
+        # If too few messages, no need to compress
+        if len(non_system_messages) <= recent_message_count:
+            return messages
+        
+        # Split messages: preserve recent messages, compress older ones
+        older_messages, recent_messages = non_system_messages[:-recent_message_count], non_system_messages[-recent_message_count:]
+        
+        # If no messages to compress, return original messages
+        if not older_messages:
+            return messages
+        
+        # Build summary prompt
+        summary_prompt = (
+            "Provide a detailed but concise summary of our conversation above. "
+            "Focus on information that would be helpful for continuing the conversation, "
+            "including what we did, what we're doing, which files we're working on, and what we're going to do next."
+        )
+        
+        # Convert messages to be compressed into text
+        messages_text = ""
+        for msg in older_messages:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            messages_text += f"{role.upper()}: {content}\n\n"
+        
+        # Use LLM to generate summary
+        if self.llm_client:
+            try:
+                # void progress bar when calling LLM to generate summary to avoid conflict with ReAct execution process
+                summary_response = self.llm_client.call_with_messages([
+                    {"role": "user", "content": messages_text + "\n" + summary_prompt}
+                ], show_progress=False)
+                
+                # Create new message list with summary
+                compressed_messages = system_messages.copy()
+                
+                # Add summary as assistant message
+                summary_message = {
+                    "role": "assistant",
+                    "content": f"Previous conversation summary: {summary_response}"
+                }
+                compressed_messages.append(summary_message)
+                
+                # Add recent messages
+                compressed_messages.extend(recent_messages)
+                
+                # Calculate token count after compression
+                compressed_tokens = self.get_token_count(compressed_messages, model)
+                logger.info(f"Compressed {len(messages)} messages to {len(compressed_messages)} messages ({current_tokens} -> {compressed_tokens} tokens)")
+                
+                return compressed_messages
+            except Exception as e:
+                logger.error(f"Failed to generate summary: {e}")
+                # Return original messages if compression fails
+                return messages
+        else:
+            logger.warning("No LLM client available for summary generation, returning original messages")
+            return messages
+    
     def _compress_message(self, msg_content: Union[str, dict], message_id: Optional[str] = None,
                         max_tokens: int = 3000, chars_per_token: float = 3.0) -> Union[str, dict]:
         """Compress single message content
@@ -500,7 +593,7 @@ Above is a summary of the conversation history. The conversation continues below
             logger.error(f"Error getting full message: {e}")
             return None
 
-    def get_messages_for_context(self, session_id: str, model: str = "gpt-4", max_messages: int = 50) -> List[Dict]:
+    def get_messages_for_context(self, session_id: str, model: str = "gpt-4", max_messages: int = 32) -> List[Dict]:
         """Get messages for current context
 
         Following Suna project's implementation, get the latest summary and all messages after it,
