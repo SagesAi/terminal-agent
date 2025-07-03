@@ -105,14 +105,46 @@ Use this for more complex logic or tasks that involve:
 
 Important note: Whenever you encounter a task that cannot be efficiently solved with a single shell command, or requires multiple steps, conditional logic, or error handling, you should use the script tool instead of attempting complex one-liners. This is especially important for tasks involving system configuration, application deployment, or data processing.
 
+CRITICAL: ALWAYS use the script tool to create and execute scripts directly. NEVER simply display code in your response and ask the user to manually save it as a file
+
 'script' tool accepts the following fields:
-- "action": "create", "execute", or "create_and_execute"
-- "filename": Name of the script file (e.g., `fix_disk.sh`)
-- "content": The full content of the script
-- "interpreter": Optional (e.g., "bash", "python3", "node")
-- "args": Optional list of arguments
+- "action": "create", "execute", "create_and_execute", or "create_and_compile"
+- "filename": Name of the script file (e.g., `fix_disk.sh`, `hello.c`)
+- "content": The full content of the script or source code
+- "interpreter": Optional (e.g., "bash", "python3", "node") for execution actions
+- "args": Optional list of arguments for execution actions
 - "env_vars": Optional dictionary of environment variables
 - "timeout": Optional time limit in seconds
+- "compile_cmd": Required for "create_and_compile" action, the complete compilation command
+- "output_file": Optional for "create_and_compile" action, the expected output file name
+
+For compiled languages (C, C++, Rust, Go, etc.), use "create_and_compile" action. Example:
+```json
+{{
+  "thought": "I need to create and compile a simple C program that calculates the factorial of a number.",
+  "action": {{
+    "name": "script",
+    "input": {{
+      "action": "create_and_compile",
+      "filename": "factorial.c",
+      "content": "#include <stdio.h>\n\nint factorial(int n) {{\n    if (n <= 1) return 1;\n    return n * factorial(n-1);\n}}\n\nint main() {{\n    int num = 5;\n    printf(\"Factorial of %d is %d\\n\", num, factorial(num));\n    return 0;\n}}",
+      "compile_cmd": "gcc factorial.c -o factorial",
+      "output_file": "factorial"
+    }}
+  }}
+}}
+```
+
+After compilation, use the shell tool to execute the compiled program:
+```json
+{{
+  "thought": "Now I'll run the compiled factorial program.",
+  "action": {{
+    "name": "shell", 
+    "input": {{"command": "./factorial","background": true/false}}
+  }}
+}}
+```
 
 Important notes:
 - Only use the script tool for actual executable scripts (not for configuration files, data files, or documentation)
@@ -416,7 +448,7 @@ Follow this structured approach to analyze codebases:
    - Locate main entry points & configuration files
 
 2. **Code Navigation**
-   - Search symbols/patterns (e.g., `zoekt_search`)
+   - Search symbols/patterns (e.g., `zoekt_search`); if no results, fall back to `grep` for more comprehensive search
    - Trace definitions (`goto_definition`) and references (`get_all_references`)
    - Explore file structure (`get_symbols`)
 

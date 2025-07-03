@@ -24,10 +24,11 @@ def script_tool(script_request: str) -> str:
     Creates and executes a script based on the provided request.
 
     The request should be in JSON format with the following fields:
-    - action: "create", "execute", or "create_and_execute"
+    - action: "create", "execute", "create_and_execute", or "create_and_compile"
     - filename: The name of the script file to create or execute
     - content: The content of the script (only for creation)
-    - interpreter: The interpreter to use (e.g., "python3", "bash", "node")
+    - interpreter: The interpreter to use (e.g., "python3", "bash", "node") (for execute actions)
+    - compile_cmd: Full compilation command (e.g., "gcc file.c -o output") (only for create_and_compile)
     - args: List of arguments to pass to the script (optional)
     - env_vars: Dictionary of environment variables to set (optional)
     - timeout: Maximum execution time in seconds (optional)
@@ -140,6 +141,13 @@ def script_tool(script_request: str) -> str:
 
             # 添加一行日志，记录实际的返回代码
             logger.debug(f"Script execution return code: {return_code}")
+            
+            #check if the script is executable
+            file_ext = os.path.splitext(filename)[1].lower()
+            executable_extensions = [".py", ".sh", ".bash", ".js", ".ts", ".pl", ".rb", ".php", ".r", ".ps1", ""]
+            if return_code != 0 and file_ext not in executable_extensions:
+                console.print(f"[yellow]Warning: Attempting to directly execute a file that might need compilation: {filename}[/yellow]")
+                console.print(f"[yellow]Consider using 'create_and_compile' action with an appropriate compile_cmd instead for {file_ext} files.[/yellow]")
 
             # 修复 bug：确保在输出中正确反映返回代码
             if return_code == 0:
@@ -149,8 +157,52 @@ def script_tool(script_request: str) -> str:
             
             return result
 
-        # Handle unknown action
-        return f"Error: Unknown action '{action}'. Must be 'create', 'execute', or 'create_and_execute'."
+        # Create and compile action
+        if action == "create_and_compile":
+            # First create the source file if content is provided
+            if "content" in request and request["content"]:
+                create_result = create_file({
+                    "file_path": filename,
+                    "content": request["content"]
+                })
+                if "Error" in create_result:
+                    return create_result
+                console.print(f"[green]Created source file: {filename}[/green]")
+            else:
+                # Check if filename exists if not creating
+                exists_result = file_exists({"file_path": filename})
+                if "Error" in exists_result or "does not exist" in exists_result:
+                    return f"Error: Source file {filename} does not exist."
+             # Get compile command - this is required
+            compile_cmd = request.get("compile_cmd", "")
+            if not compile_cmd:
+                return f"Error: compile_cmd parameter is required for 'create_and_compile' action. Please provide a complete compilation command."
+                
+             # Execute compile command
+            console.print(f"[yellow]Compiling: {compile_cmd}[/yellow]")
+            return_code, compile_output, _ = execute_command(compile_cmd)
+            
+            if return_code != 0:
+                return f"Compilation failed:\nCommand: {compile_cmd}\nReturn Code: {return_code}\nOutput:\n{compile_output}"
+            
+             # get output file name
+            output_file = request.get("output_file", "")
+            
+            # if no output file name is provided, use the input file name (without extension) as the default value
+            if not output_file:
+                output_file = os.path.splitext(filename)[0]
+                
+            # check if the output file actually exists
+            if os.path.exists(output_file):
+                console.print(f"[green]Compilation successful. Output file: {output_file}[/green]")
+            else:
+                console.print(f"[yellow]Compilation successful, but couldn't find output file: {output_file}[/yellow]")
+            
+            # Return success message with compilation details and execution hint
+            result = f"Compilation: {compile_cmd}\nCompilation successful.\n\nOutput file: {output_file}\n\nTo execute the compiled program, use the shell tool with command: ./{output_file}"
+            return result
+        #Handle unknown action
+        return f"Error: Unknown action '{action}'. Must be 'create', 'execute', 'create_and_execute', or 'create_and_compile'."
 
     except json.JSONDecodeError:
         return "Error: Invalid JSON format in script request."
