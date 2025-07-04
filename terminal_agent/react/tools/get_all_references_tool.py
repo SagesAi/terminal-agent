@@ -166,8 +166,6 @@ def get_all_references_tool(query: Union[str, Dict]) -> Union[Dict, List]:
             
         except Exception as e:
             error_msg = f"Error getting references: {str(e)}"
-            logger.error(error_msg)
-            logger.error(traceback.format_exc())
             return {"error": error_msg}
 
     except json.JSONDecodeError as e:

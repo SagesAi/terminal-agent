@@ -550,12 +550,13 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                     diff_renderer = DiffRenderer()
                     logger.info("Successfully initialized diff tools")
                     
-                    # Generate unified diff
+                    # Generate unified diff - use basename to avoid creating files with full paths
+                    file_basename = os.path.basename(file_path)
                     unified_diff = diff_gen.generate_unified_diff(
                         "\n".join(lines),
                         "\n".join(updated_lines),
-                        f"{file_path} (before)",
-                        f"{file_path} (after)",
+                        f"{file_basename} (before)",
+                        f"{file_basename} (after)",
                         ignore_whitespace_only_changes=True
                     )
                     
@@ -615,11 +616,15 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                     # Generate side-by-side diff for logging purposes only
                     # We don't include it in the result as it can be too verbose for terminal output
                     try:
+                        # Use basename for side-by-side diff too
+                        if not 'file_basename' in locals():
+                            file_basename = os.path.basename(file_path)
+                            
                         diff_renderer.render_side_by_side_diff(
                             original_preview,
                             updated_preview,
-                            f"{file_path} (before)",
-                            f"{file_path} (after)",
+                            f"{file_basename} (before)",
+                            f"{file_basename} (after)",
                             language=language
                         )
                         # Note: We intentionally don't add side-by-side diff to the result

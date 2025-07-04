@@ -10,11 +10,20 @@ from typing import List, Dict, Any, Optional, Union
 from datetime import datetime
 import uuid
 import logging
+import sys
+
+from rich.console import Console
+from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskProgressColumn
+from rich.panel import Panel
+from rich import box
 
 from terminal_agent.memory.memory_database import MemoryDatabase
 
 # Get logger
 logger = logging.getLogger(__name__)
+
+# Rich console for pretty output
+console = Console()
 
 # Token management constants
 DEFAULT_TOKEN_THRESHOLD = 4096  # Default token threshold
@@ -108,8 +117,8 @@ class ContextManager:
         return compressed_messages
 
     def _compress_messages(self, messages: List[Dict], model: str, max_tokens: int = 41000,
-                          token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
-                          max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
+                      token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
+                      max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
         """Compress messages using while loop until token count is within limit
         
         Args:
@@ -132,47 +141,74 @@ class ContextManager:
         current_threshold = token_threshold
         current_messages = messages.copy()
         current_token_count = initial_token_count
-    
-        # core loop: continue trying compression as long as token count exceeds limit
-        while current_token_count > max_tokens:
-            # check if threshold has reached minimum
-            if current_threshold < MIN_TOKEN_THRESHOLD:
-                logger.warning(
-                    f"Token threshold {current_threshold} below minimum {MIN_TOKEN_THRESHOLD}, "
-                    "stopping compression"
+        
+        # 设置初始进度为10%，确保用户能看到进度条在移动
+        with Progress(
+            "[cyan]{task.description}",
+            SpinnerColumn("dots"),
+            BarColumn(bar_width=40, complete_style="green", finished_style="green"),
+            TaskProgressColumn(),
+            "[bold]{task.fields[status]}",
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,  # Set to False to keep progress visible
+            expand=True
+        ) as progress:
+            task = progress.add_task("[bold blue]Optimizing context", total=100, status="")
+            # 立即更新进度到10%，确保用户看到进度条在移动
+            progress.update(task, completed=10, status="[cyan]Starting...[/cyan]")
+            
+            # core loop: continue trying compression as long as token count exceeds limit
+            while current_token_count > max_tokens:
+                # check if threshold has reached minimum
+                if current_threshold < MIN_TOKEN_THRESHOLD:
+                    progress.update(task, status="[yellow]Optimizing...[/yellow]")
+                    logger.warning(
+                        f"Token threshold {current_threshold} below minimum {MIN_TOKEN_THRESHOLD}, "
+                        "stopping compression"
+                    )
+                    return current_messages
+                
+                # important: always start from original messages to apply new threshold
+                # compress user messages
+                user_compressed = self._compress_user_messages(
+                    messages, model, max_tokens, current_threshold  # use original messages
                 )
-                return current_messages
-            
-            # important: always start from original messages to apply new threshold
-            # compress user messages
-            user_compressed = self._compress_user_messages(
-                messages, model, max_tokens, current_threshold  # use original messages
-            )
-            user_token_count = self.get_token_count(user_compressed, model)
-            logger.debug(f"After user compression: {initial_token_count} -> {user_token_count}")
-            
-            # compress assistant messages
-            assistant_compressed = self._compress_assistant_messages(
-                user_compressed, model, max_tokens, current_threshold
-            )
-            assistant_token_count = self.get_token_count(assistant_compressed, model)
-            logger.debug(f"After assistant compression: {user_token_count} -> {assistant_token_count}")
-            
-            # update state
-            current_messages = assistant_compressed
-            current_token_count = assistant_token_count
-            
-            # check if compression is successful
-            if current_token_count <= max_tokens:
-                logger.info(f"Compression successful: {current_token_count} tokens ≤ {max_tokens}")
-                return current_messages
-            
-            # lower threshold for next iteration
-            logger.warning(
-                f"Compression insufficient: {current_token_count} > {max_tokens}, "
-                f"lowering threshold to {current_threshold//2}"
-            )
-            current_threshold = current_threshold // 2
+                user_token_count = self.get_token_count(user_compressed, model)
+                logger.debug(f"After user compression: {initial_token_count} -> {user_token_count}")
+                
+                # Update progress - ensure at least 20% progress
+                progress_percent = max(20, min(100, int((1 - (user_token_count / initial_token_count)) * 50)))
+                progress.update(task, completed=progress_percent, status="[cyan]Optimizing...[/cyan]")
+                
+                # compress assistant messages
+                assistant_compressed = self._compress_assistant_messages(
+                    user_compressed, model, max_tokens, current_threshold
+                )
+                assistant_token_count = self.get_token_count(assistant_compressed, model)
+                logger.debug(f"After assistant compression: {user_token_count} -> {assistant_token_count}")
+                
+                # Update progress - ensure at least 50% progress
+                progress_percent = max(50, min(100, int((1 - (assistant_token_count / initial_token_count)) * 100)))
+                progress.update(task, completed=progress_percent, status="[magenta]Optimizing...[/magenta]")
+                
+                # update state
+                current_messages = assistant_compressed
+                current_token_count = assistant_token_count
+                
+                # Check if compression was successful
+                if current_token_count <= max_tokens:
+                    progress.update(task, completed=100, status="[green]Complete[/green]")
+                    # Don't show compression completion panel
+                    logger.info(f"Compression successful: {current_token_count} tokens ≤ {max_tokens}")
+                    return current_messages
+                
+                # lower threshold for next iteration
+                logger.debug(
+                    f"Compression insufficient: {current_token_count} > {max_tokens}, "
+                    f"lowering threshold to {current_threshold//2}"
+                )
+                current_threshold = current_threshold // 2
         
         # theoretically will not reach here
         return current_messages
@@ -691,6 +727,7 @@ Above is a summary of the conversation history. The conversation continues below
             logger.debug(f"Context messages token count: {token_count}")
 
             if token_count > self.token_threshold:
+                console.print(f"[bold blue]Optimizing context[/bold blue]")
                 logger.info(f"Message token count ({token_count}) exceeds threshold ({self.token_threshold}), applying compression")
                 messages = self.compress_messages(messages, model, self.token_threshold)
 
@@ -721,6 +758,7 @@ Above is a summary of the conversation history. The conversation continues below
                 logger.debug(f"Session {session_id} token count ({token_count}) below threshold ({self.token_threshold}), no summary needed")
                 return None
 
+            console.print(f"[bold yellow]Generating summary...[/bold yellow]")
             logger.info(f"Session {session_id} token count ({token_count}) exceeds threshold ({self.token_threshold}), generating summary")
 
             # If too few messages, don't generate summary

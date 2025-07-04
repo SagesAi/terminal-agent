@@ -127,6 +127,20 @@ class ReActAgent:
     """
     Defines the ReAct agent responsible for reasoning, acting, and observing to solve tasks.
     """
+    
+    def _show_processing_message(self, message: str) -> None:
+        """
+        Shows a user-friendly processing message panel when encountering errors.
+        
+        Args:
+            message (str): The specific message to display in the panel.
+        """
+        console.print(Panel(
+            f"[bold yellow]Processing your request...[/bold yellow]\n[dim]{message}[/dim]", 
+            title="[bold blue]Terminal Agent[/bold blue]", 
+            border_style="blue",
+            expand=False
+        ))
 
     def __init__(self,
                  llm_client: LLMClient,
@@ -319,7 +333,8 @@ class ReActAgent:
             return
 
         except Exception as e:
-            logger.error(f"🤖 Whoops-a-daisy! Something went a bit wonky, do not worry, just try again")
+            logger.debug(f"Error in ReActAgent.think: {str(e)}")
+            self._show_processing_message("I encountered a small hiccup but I'm trying again automatically.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
@@ -410,12 +425,14 @@ class ReActAgent:
                 raise ValueError(error_msg)
 
         except json.JSONDecodeError as e:
-            logger.error(f"🐛 Oopsie-doodle! The response got a bit jumbled, do not worry, just try again")
+            logger.debug(f"JSON decode error in ReActAgent.decide: {str(e)}")
+            self._show_processing_message("I'm refining my response format and will try again.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
         except Exception as e:
-            logger.error(f"🤖 Whoops-a-daisy! Something went a bit wonky, do not worry, just try again")
+            logger.debug(f"Error in ReActAgent.decide: {str(e)}")
+            self._show_processing_message("I encountered a small hiccup but I'm trying again automatically.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 

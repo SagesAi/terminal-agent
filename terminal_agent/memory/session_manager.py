@@ -225,7 +225,7 @@ class SessionManager:
                 llm_messages.append(llm_message)
                 
             token_count = self.context_manager.get_token_count(llm_messages, model)
-            logger.warning(f"Retrieved {len(llm_messages)} LLM context messages for user {user_id} with {token_count} tokens")
+            logger.info(f"Retrieved {len(llm_messages)} LLM context messages for user {user_id} with {token_count} tokens")
             return llm_messages
             
         except Exception as e:

@@ -74,47 +74,99 @@ class DiffGenerator:
         else:
             new_content_str = new_content
         
-        # Create temporary directory and files
+        # Extract base filenames to avoid creating files with full paths
+        from_file_base = os.path.basename(from_file.replace(" (before)", ""))
+        to_file_base = os.path.basename(to_file.replace(" (after)", ""))
+        
+        # Use safer temporary file names
+        from_file_safe = f"old_{from_file_base}"
+        to_file_safe = f"new_{to_file_base}"
+        
+        temp_dir = None
+        old_path = None
+        new_path = None
+        
         try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                # Create old file
-                old_path = os.path.join(temp_dir, from_file)
-                with open(old_path, 'w', encoding='utf-8') as f:
-                    f.write(old_content_str)
+            # Create temporary directory
+            temp_dir = tempfile.mkdtemp()
+            
+            # Create old file
+            old_path = os.path.join(temp_dir, from_file_safe)
+            with open(old_path, 'w', encoding='utf-8') as f:
+                f.write(old_content_str)
+            
+            # Create new file
+            new_path = os.path.join(temp_dir, to_file_safe)
+            with open(new_path, 'w', encoding='utf-8') as f:
+                f.write(new_content_str)
+            
+            # Run git diff
+            cmd = [
+                "git", "diff", "--no-index",
+                f"--unified={context_lines}",
+                old_path, new_path
+            ]
+            
+            logger.debug(f"Running git diff command: {' '.join(cmd)}")
+            result = subprocess.run(
+                cmd,
+                cwd=temp_dir,
+                capture_output=True,
+                text=True,
+                check=False  # git diff returns 1 if differences found
+            )
+            
+            # git diff returns 1 if differences found, which is not an error
+            if result.stdout:
+                # Completely replace the git diff header with a simplified version
+                output = result.stdout
                 
-                # Create new file
-                new_path = os.path.join(temp_dir, to_file)
-                with open(new_path, 'w', encoding='utf-8') as f:
-                    f.write(new_content_str)
+                # Extract the actual diff content (skip the header lines)
+                diff_lines = output.splitlines()
+                content_lines = []
+                header_found = False
                 
-                # Run git diff
-                cmd = [
-                    "git", "diff", "--no-index",
-                    f"--unified={context_lines}",
-                    old_path, new_path
-                ]
+                for line in diff_lines:
+                    # Skip the git diff header lines until we find the @@ line
+                    if line.startswith("@@") or header_found:
+                        header_found = True
+                        content_lines.append(line)
                 
-                logger.debug(f"Running git diff command: {' '.join(cmd)}")
-                result = subprocess.run(
-                    cmd,
-                    cwd=temp_dir,
-                    capture_output=True,
-                    text=True,
-                    check=False  # git diff returns 1 if differences found
-                )
+                # Extract just the base filenames without paths
+                from_file_display = os.path.basename(from_file)
+                to_file_display = os.path.basename(to_file)
                 
-                # git diff returns 1 if differences found, which is not an error
-                if result.stdout:
-                    return result.stdout
-                elif result.stderr:
-                    logger.warning(f"Git diff error: {result.stderr}")
-                    return None
-                else:
-                    # No differences found
-                    return ""
+                # Create a new simplified header with just the filenames
+                simplified_header = f"diff --git a/{from_file_display} b/{to_file_display}\n"
+                simplified_header += f"--- a/{from_file_display}\n"
+                simplified_header += f"+++ b/{to_file_display}\n"
+                
+                # Combine the simplified header with the content
+                output = simplified_header + "\n".join(content_lines)
+                return output
+            elif result.stderr:
+                logger.warning(f"Git diff error: {result.stderr}")
+                return None
+            else:
+                # No differences found
+                return ""
+                
         except Exception as e:
             logger.warning(f"Error running git diff: {str(e)}")
             return None
+            
+        finally:
+            # Clean up temporary files and directory
+            try:
+                if old_path and os.path.exists(old_path):
+                    os.unlink(old_path)
+                if new_path and os.path.exists(new_path):
+                    os.unlink(new_path)
+                if temp_dir and os.path.exists(temp_dir):
+                    os.rmdir(temp_dir)
+            except Exception as e:
+                logger.warning(f"Error cleaning up temporary files: {str(e)}")
+
     
     @staticmethod
     def generate_unified_diff(old_content: Union[str, List[str]], new_content: Union[str, List[str]], 

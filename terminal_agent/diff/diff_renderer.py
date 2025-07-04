@@ -4,16 +4,19 @@ Diff Renderer for Terminal Agent.
 Provides functionality for rendering diffs with syntax highlighting in the terminal.
 """
 
-import re
 import os
+import re
+import sys
+import unicodedata
 from typing import Dict, List, Tuple, Optional, Any, Union
 
 try:
     from rich.console import Console
     from rich.syntax import Syntax
-    from rich.panel import Panel
-    from rich.columns import Columns
     from rich.text import Text
+    from rich.columns import Columns
+    from rich.panel import Panel
+    from rich.measure import Measurement
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -95,11 +98,37 @@ class DiffRenderer:
         # Split the diff into lines
         lines = diff_text.splitlines()
         
+        # Calculate maximum line width, considering Chinese character width
+        max_width = self.width - 4  # Subtract width for borders and padding
+        
         # Process the diff lines
         result = []
         for line in lines:
             # Process the line content (convert tabs, etc.)
             processed_line = self._process_line(line, tab_size, convert_tabs, show_whitespace)
+            
+            # Check line width, if it contains Chinese characters it may need truncation
+            if self._get_string_width(processed_line) > max_width:
+                # Truncate line to ensure display width doesn't exceed maximum width
+                truncated_line = ""
+                current_width = 0
+                
+                # Preserve special characters at the beginning of the line (+, -, @@, etc.)
+                prefix = ""
+                if processed_line.startswith(("+", "-", "@", " ")):
+                    prefix = processed_line[0]
+                    processed_line = processed_line[1:]
+                    current_width = 1  # Prefix occupies one character width
+                
+                for char in processed_line:
+                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
+                    if current_width + char_width <= max_width:
+                        truncated_line += char
+                        current_width += char_width
+                    else:
+                        break
+                
+                processed_line = prefix + truncated_line
             
             # Preserve exact spaces by using no_wrap=True and ensuring spaces are preserved
             if processed_line.startswith("+++") or processed_line.startswith("---"):
@@ -138,13 +167,10 @@ class DiffRenderer:
         old_title: str = "Old",
         new_title: str = "New",
         language: Optional[str] = None,
-        show_line_numbers: bool = True,
-        tab_size: Optional[int] = None,
-        convert_tabs: Optional[bool] = None,
-        show_whitespace: Optional[bool] = None
+        show_line_numbers: bool = True
     ) -> str:
         """
-        Render a side-by-side diff with syntax highlighting.
+        Render a side-by-side diff of two content strings.
         
         Args:
             old_content: Original content
@@ -162,30 +188,78 @@ class DiffRenderer:
             from terminal_agent.diff.diff_generator import DiffGenerator
             diff_gen = DiffGenerator()
             return diff_gen.generate_unified_diff(old_content, new_content, old_title, new_title)
+        
+        # Process content to ensure each line's width won't cause border misalignment
+        old_lines = old_content.splitlines()
+        new_lines = new_content.splitlines()
+        
+        # Calculate the maximum width for each column
+        column_width = (self.width // 2) - 4  # Subtract width for borders and padding
+        
+        # Process Chinese characters that might cause border misalignment
+        processed_old_lines = []
+        processed_new_lines = []
+        
+        for line in old_lines:
+            # If the line contains Chinese characters, it may need to be truncated or padded
+            if self._get_string_width(line) > column_width:
+                # Truncate the line to ensure display width doesn't exceed column width
+                truncated_line = ""
+                current_width = 0
+                for char in line:
+                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
+                    if current_width + char_width <= column_width:
+                        truncated_line += char
+                        current_width += char_width
+                    else:
+                        break
+                processed_old_lines.append(truncated_line)
+            else:
+                processed_old_lines.append(line)
+        
+        for line in new_lines:
+            # Process new content similarly
+            if self._get_string_width(line) > column_width:
+                truncated_line = ""
+                current_width = 0
+                for char in line:
+                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
+                    if current_width + char_width <= column_width:
+                        truncated_line += char
+                        current_width += char_width
+                    else:
+                        break
+                processed_new_lines.append(truncated_line)
+            else:
+                processed_new_lines.append(line)
+        
+        # Recombine the processed content
+        processed_old_content = "\n".join(processed_old_lines)
+        processed_new_content = "\n".join(processed_new_lines)
             
         # Create syntax objects for both sides
         old_syntax = Syntax(
-            old_content, 
+            processed_old_content, 
             language or "text", 
             theme=self.theme,
             line_numbers=show_line_numbers,
-            word_wrap=True
+            word_wrap=False  # Disable auto word wrap as we handle it manually
         )
         
         new_syntax = Syntax(
-            new_content, 
+            processed_new_content, 
             language or "text", 
             theme=self.theme,
             line_numbers=show_line_numbers,
-            word_wrap=True
+            word_wrap=False  # Disable auto word wrap as we handle it manually
         )
         
         # Create panels for both sides
-        old_panel = Panel(old_syntax, title=old_title, border_style="red")
-        new_panel = Panel(new_syntax, title=new_title, border_style="green")
+        old_panel = Panel(old_syntax, title=old_title, border_style="red", width=column_width + 4)
+        new_panel = Panel(new_syntax, title=new_title, border_style="green", width=column_width + 4)
         
-        # Create columns layout
-        columns = Columns([old_panel, new_panel], equal=True, width=self.width // 2)
+        # Create columns layout with fixed width for each column
+        columns = Columns([old_panel, new_panel], equal=True)
         
         # Render to string
         with self.console.capture() as capture:
@@ -193,6 +267,32 @@ class DiffRenderer:
             
         return capture.get()
         
+    def _get_string_width(self, text: str) -> int:
+        """
+        Calculate the display width of a string, considering that Chinese characters and other full-width characters
+        occupy two character widths.
+        
+        Args:
+            text: The text to calculate the width for
+            
+        Returns:
+            int: The display width of the text
+        """
+        width = 0
+        # Remove ANSI escape sequences, they don't occupy display width
+        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+        text = ansi_escape.sub('', text)
+        
+        for char in text:
+            # Use unicodedata.east_asian_width to determine character width
+            # F, W, A (in most terminals) are considered wide characters (occupying two character positions)
+            eaw = unicodedata.east_asian_width(char)
+            if eaw in ('F', 'W', 'A'):
+                width += 2
+            else:
+                width += 1
+        return width
+    
     def _process_line(self, line: str, tab_size: int, convert_tabs: bool, show_whitespace: bool) -> str:
         """
         Process a line of text, converting tabs to spaces and/or showing whitespace as visible characters.
