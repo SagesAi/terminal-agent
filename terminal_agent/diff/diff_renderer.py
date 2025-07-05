@@ -11,12 +11,13 @@ import unicodedata
 from typing import Dict, List, Tuple, Optional, Any, Union
 
 try:
-    from rich.console import Console
+    from rich.console import Console, Group
     from rich.syntax import Syntax
     from rich.text import Text
     from rich.columns import Columns
     from rich.panel import Panel
     from rich.measure import Measurement
+    from rich.box import SQUARE
     HAS_RICH = True
 except ImportError:
     HAS_RICH = False
@@ -101,62 +102,102 @@ class DiffRenderer:
         # Calculate maximum line width, considering Chinese character width
         max_width = self.width - 4  # Subtract width for borders and padding
         
-        # Process the diff lines
-        result = []
+        # Extract git diff header and content
+        header_lines = []
+        content_lines = []
+        in_header = True
+        
         for line in lines:
             # Process the line content (convert tabs, etc.)
             processed_line = self._process_line(line, tab_size, convert_tabs, show_whitespace)
             
-            # Check line width, if it contains Chinese characters it may need truncation
-            if self._get_string_width(processed_line) > max_width:
-                # Truncate line to ensure display width doesn't exceed maximum width
-                truncated_line = ""
-                current_width = 0
-                
-                # Preserve special characters at the beginning of the line (+, -, @@, etc.)
-                prefix = ""
-                if processed_line.startswith(("+", "-", "@", " ")):
-                    prefix = processed_line[0]
-                    processed_line = processed_line[1:]
-                    current_width = 1  # Prefix occupies one character width
-                
-                for char in processed_line:
-                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
-                    if current_width + char_width <= max_width:
-                        truncated_line += char
-                        current_width += char_width
-                    else:
-                        break
-                
-                processed_line = prefix + truncated_line
+            # Truncate line to ensure display width doesn't exceed maximum width
+            processed_line = self._truncate_to_width(processed_line, max_width)
             
-            # Preserve exact spaces by using no_wrap=True and ensuring spaces are preserved
-            if processed_line.startswith("+++") or processed_line.startswith("---"):
-                # Header lines
-                text = Text(processed_line, style=self.colors["header"], no_wrap=True)
-                result.append(text)
-            elif processed_line.startswith("@@"):
-                # Hunk header
-                text = Text(processed_line, style=self.colors["changed"], no_wrap=True)
-                result.append(text)
-            elif processed_line.startswith("+"):
-                # Added line
-                text = Text(processed_line, style=self.colors["added"], no_wrap=True)
-                result.append(text)
-            elif processed_line.startswith("-"):
-                # Removed line
-                text = Text(processed_line, style=self.colors["removed"], no_wrap=True)
-                result.append(text)
+            # Separate header from content
+            if in_header and (processed_line.startswith('diff --git') or 
+                             processed_line.startswith('---') or 
+                             processed_line.startswith('+++')):  
+                header_lines.append(processed_line)
+            else:
+                if in_header and header_lines:  # First non-header line
+                    in_header = False
+                content_lines.append(processed_line)
+        
+        # Format header
+        header_result = []
+        for line in header_lines:
+            if line.startswith("diff --git"):
+                header_result.append(Text(line, style="bold blue", no_wrap=True))
+            else:  # --- or +++ lines
+                header_result.append(Text(line, style=self.colors["header"], no_wrap=True))
+        
+        # Format content with improved indentation and function highlighting
+        content_result = []
+        current_function = None
+        indent_level = 0
+        
+        for line in content_lines:
+            # Detect function context in hunk headers
+            if line.startswith("@@"):
+                # Extract function name if present
+                function_match = re.search(r'@@ .+ @@ (.+)', line)
+                if function_match:
+                    current_function = function_match.group(1).strip()
+                    # Highlight function name in hunk header
+                    line = re.sub(r'(@@ .+ @@ )(.+)', r'\1[bold magenta]\2[/bold magenta]', line)
+                text = Text.from_markup(line)
+                text.style = self.colors["changed"]
+                text.no_wrap = True
+                content_result.append(text)
+                continue
+            
+            # Handle indentation for better code structure visibility
+            if line.startswith("+") or line.startswith("-"):
+                prefix = line[0]
+                code_line = line[1:]
+                
+                # Calculate indentation level based on spaces/tabs at start of line
+                if code_line.strip():
+                    leading_space = len(code_line) - len(code_line.lstrip())
+                    indent_level = leading_space // tab_size
+                
+                # Style based on line type
+                style = self.colors["added"] if prefix == "+" else self.colors["removed"]
+                
+                # Highlight keywords for better code readability
+                if language and (language.lower() in ["python", "javascript", "typescript", "java", "c", "cpp"]):
+                    # Highlight common programming keywords
+                    for keyword in ["def ", "class ", "function ", "if ", "else ", "for ", "while ", "return ", "import "]:
+                        if keyword in code_line:
+                            code_line = code_line.replace(keyword, f"[bold]{keyword}[/bold]")
+                
+                # Create styled text with prefix
+                text = Text.from_markup(f"{prefix}{code_line}")
+                text.style = style
+                text.no_wrap = True
+                content_result.append(text)
             else:
                 # Context line
-                result.append(Text(processed_line, no_wrap=True))
-                
-        # Render the result using Rich's capture feature with options to preserve spaces
+                content_result.append(Text(line, no_wrap=True))
+        
+        # Render the header and content
         with self.console.capture() as capture:
-            for text in result:
-                # Use print_line to avoid any automatic formatting that might affect spaces
+            # Print header without panel
+            for text in header_result:
                 self.console.print(text, highlight=False, soft_wrap=False)
-                
+            
+            # Print content with panel for better visual separation
+            content_panel = Panel(
+                Group(*content_result),
+                box=SQUARE,  # Use SQUARE box for better CJK character alignment
+                padding=(0, 1),
+                title="" if not current_function else f"[bold magenta]{current_function}[/bold magenta]",
+                border_style="dim",
+                expand=False
+            )
+            self.console.print(content_panel)
+        
         # Get the captured output as a string
         return capture.get()
         
@@ -201,37 +242,12 @@ class DiffRenderer:
         processed_new_lines = []
         
         for line in old_lines:
-            # If the line contains Chinese characters, it may need to be truncated or padded
-            if self._get_string_width(line) > column_width:
-                # Truncate the line to ensure display width doesn't exceed column width
-                truncated_line = ""
-                current_width = 0
-                for char in line:
-                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
-                    if current_width + char_width <= column_width:
-                        truncated_line += char
-                        current_width += char_width
-                    else:
-                        break
-                processed_old_lines.append(truncated_line)
-            else:
-                processed_old_lines.append(line)
+            # Truncate line to ensure display width doesn't exceed column width
+            processed_old_lines.append(self._truncate_to_width(line, column_width))
         
         for line in new_lines:
             # Process new content similarly
-            if self._get_string_width(line) > column_width:
-                truncated_line = ""
-                current_width = 0
-                for char in line:
-                    char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
-                    if current_width + char_width <= column_width:
-                        truncated_line += char
-                        current_width += char_width
-                    else:
-                        break
-                processed_new_lines.append(truncated_line)
-            else:
-                processed_new_lines.append(line)
+            processed_new_lines.append(self._truncate_to_width(line, column_width))
         
         # Recombine the processed content
         processed_old_content = "\n".join(processed_old_lines)
@@ -254,12 +270,30 @@ class DiffRenderer:
             word_wrap=False  # Disable auto word wrap as we handle it manually
         )
         
-        # Create panels for both sides
-        old_panel = Panel(old_syntax, title=old_title, border_style="red", width=column_width + 4)
-        new_panel = Panel(new_syntax, title=new_title, border_style="green", width=column_width + 4)
+        # Create panels for both sides with exact width control
+        # Use box.SQUARE for more consistent border rendering with CJK characters
+        exact_width = column_width + 4  # Add padding for borders
         
-        # Create columns layout with fixed width for each column
-        columns = Columns([old_panel, new_panel], equal=True)
+        old_panel = Panel(
+            old_syntax, 
+            title=old_title, 
+            border_style="red", 
+            width=exact_width,
+            box=SQUARE,
+            padding=(0, 1)
+        )
+        
+        new_panel = Panel(
+            new_syntax, 
+            title=new_title, 
+            border_style="green", 
+            width=exact_width,
+            box=SQUARE,
+            padding=(0, 1)
+        )
+        
+        # Create columns layout with fixed width and no spacing between columns
+        columns = Columns([old_panel, new_panel], equal=True, padding=0)
         
         # Render to string
         with self.console.capture() as capture:
@@ -292,6 +326,51 @@ class DiffRenderer:
             else:
                 width += 1
         return width
+    
+    def _truncate_to_width(self, text: str, max_width: int, add_ellipsis: bool = True) -> str:
+        """
+        Truncate text to ensure it doesn't exceed max_width display characters,
+        considering full-width characters like CJK.
+        
+        Args:
+            text: Text to truncate
+            max_width: Maximum display width
+            add_ellipsis: Whether to add ellipsis (...) when truncating
+            
+        Returns:
+            str: Truncated text
+        """
+        # If text is already within max width, return it as is
+        if self._get_string_width(text) <= max_width:
+            return text
+        
+        # Extract prefix if present (for diff markers)
+        prefix = ""
+        if text and text[0] in ("+", "-", "@", " "):
+            prefix = text[0]
+            text = text[1:]
+            max_width -= 1  # Adjust max_width for prefix
+        
+        # Reserve space for ellipsis if needed
+        ellipsis_width = 3 if add_ellipsis else 0
+        effective_max_width = max_width - ellipsis_width
+        
+        result = ""
+        current_width = 0
+        
+        for char in text:
+            char_width = 2 if unicodedata.east_asian_width(char) in ('F', 'W', 'A') else 1
+            if current_width + char_width <= effective_max_width:
+                result += char
+                current_width += char_width
+            else:
+                break
+        
+        # Add ellipsis if requested and truncation occurred
+        if add_ellipsis and len(result) < len(text):
+            result += "..."
+        
+        return prefix + result
     
     def _process_line(self, line: str, tab_size: int, convert_tabs: bool, show_whitespace: bool) -> str:
         """

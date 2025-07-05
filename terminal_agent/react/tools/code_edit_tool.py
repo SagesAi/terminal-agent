@@ -575,14 +575,11 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                         
                         console = Console()
                         
-                        # Create a panel with the diff
+                        # Print title without panel border
+                        title = Text(f"Changes to {file_path}", style="bold blue")
+                        
+                        # Create the diff text
                         diff_text = Text(rendered_diff)
-                        panel = Panel(
-                            diff_text,
-                            title=f"[bold blue]Changes to {file_path}[/bold blue]",
-                            border_style="blue",
-                            expand=False
-                        )
                         
                         # Create a table for statistics
                         stats_table = Table(show_header=False, box=None, padding=(0, 1))
@@ -594,7 +591,8 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                         
                         # Display everything
                         console.print("\n")
-                        console.print(panel)
+                        console.print(title)
+                        console.print(diff_text)
                         console.print("[bold cyan]Diff Statistics:[/bold cyan]")
                         console.print(stats_table)
                         console.print("\n")
