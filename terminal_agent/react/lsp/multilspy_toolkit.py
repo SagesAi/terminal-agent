@@ -88,8 +88,17 @@ class LSPToolKit:
         
         # Verifying if the cursor position exists and then getting the definition
         if cursor_pos is not None:
-            with self.server.start_server():
-                output = self.server.request_definition(relative_path, **cursor_pos)
+            try:
+                with self.server.start_server():
+                    output = self.server.request_definition(relative_path, **cursor_pos)
+                    
+                # Handle None response from language server
+                if output is None:
+                    logging.warning(f"Language server returned None for definition of '{word}' in {relative_path}")
+                    return {"error": f"No definition found for '{word}' at line {line if line is not None else 'unknown'}"}
+            except Exception as e:
+                logging.error(f"Error requesting definition: {str(e)}")
+                return {"error": f"Error requesting definition: {str(e)}"}
         else:
             return "The tool cannot find the word in the file"
         

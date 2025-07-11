@@ -150,6 +150,16 @@ def goto_definition_tool(query: Union[str, Dict]) -> str:
                 # 直接返回 get_definition 的结果
                 definition_result = toolkit.get_definition(word, relative_file_path, line=line, verbose=verbose)
                 logger.debug(f"Definition result: {definition_result}")
+                
+                # Check if definition_result is a dictionary with an error key
+                if isinstance(definition_result, dict) and "error" in definition_result:
+                    logger.warning(f"Definition returned with error: {definition_result['error']}")
+                    # Return the error as JSON string
+                    return json.dumps(definition_result)
+                
+                # Ensure we always return a JSON string
+                if isinstance(definition_result, dict) or isinstance(definition_result, list):
+                    return json.dumps(definition_result)
                 return definition_result
                 
             except Exception as e:
