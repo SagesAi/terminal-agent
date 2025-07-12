@@ -37,6 +37,8 @@ from terminal_agent.react.tools.goto_definition_tool import goto_definition_tool
 from terminal_agent.react.tools.zoekt_search_tool import zoekt_search_tool
 from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
 from terminal_agent.react.tools.code_edit_tool import code_edit_tool
+from terminal_agent.react.tools.expand_message_tool import expand_message_tool
+from terminal_agent.react.tools.web_search_tool import web_search_tool
 # Do not import from terminal_agent.react.tools as it would cause circular imports
 # Import expand_message_tool module when needed
 
@@ -71,6 +73,7 @@ class ToolName(Enum):
     GET_SYMBOLS = auto() # Get symbols tool for extracting symbols from files
     CODE_EDIT = auto() # Code edit tool for precise code modifications with syntax checking
     EXPAND_MESSAGE = auto() # Expand message tool for viewing full content of truncated messages
+    WEB_SEARCH = auto() # Web search tool for searching the internet
     NONE = auto()
 
     def __str__(self) -> str:
@@ -393,8 +396,15 @@ class ReActAgent:
                     logger.debug("No action needed. Proceeding to final answer.")
                     self.think()
                 else:
+                    # Get the tool input
+                    tool_input = action.get("input", self.query)
+                    
+                    # Ensure the input is serialized to a JSON string if it's a dict
+                    if isinstance(tool_input, dict):
+                        tool_input = json.dumps(tool_input)
+                        
                     # Execute the action without displaying intermediate steps
-                    self.act(tool_name, action.get("input", self.query))
+                    self.act(tool_name, tool_input)
 
             elif "final_answer" in parsed_response:
                 # Format and display the final answer with rich formatting
@@ -1119,6 +1129,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.GET_SYMBOLS,
         get_symbols_tool,
         "Extract symbols from a file. Send a JSON request with 'file_path' (file to extract symbols from), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), and 'keyword' (optional, filter symbols by keyword)."
+    )
+    
+    # Register the web search tool
+    agent.register_tool(
+        ToolName.WEB_SEARCH,
+        web_search_tool,
+        "Perform a web search using DuckDuckGo. Send a JSON request with 'query' (search terms) and 'max_results' (optional, maximum number of results to return)."
     )
     
     # Register the code edit tool

@@ -416,6 +416,27 @@ Example usage:
 
 The tool will return the complete content of the message, along with metadata like role and creation time.
 
+13.'web_search' Tool:
+Use this tool to perform web searches using DuckDuckGo. This allows you to find up-to-date information from the internet to help solve user queries that require external knowledge.
+
+The 'web_search' tool accepts a JSON string with the following structure:
+- "query": Search terms to look for (required)
+- "max_results": Maximum number of results to return (optional, default: 5)
+
+Example usage:
+- Simple query: "latest AI developments"
+- JSON format: {{"query": "weather in Tokyo", "max_results": 3}}
+
+The tool will return search results in JSON format with the following structure:
+- "results": Array of search result objects containing:
+  - "title": Title of the search result
+  - "url": URL of the search result
+  - "description": Brief description or snippet from the search result
+- "metadata": Information about the search including:
+  - "query": The original search query
+  - "result_count": Number of results returned
+  - "search_time_seconds": Time taken to perform the search
+
 ---
 
 Error Handling Strategy:

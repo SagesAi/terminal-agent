@@ -11,6 +11,7 @@ from .files_tool import files_tool
 from .get_all_references_tool import get_all_references_tool
 from .get_symbols_tool import get_symbols_tool
 from .code_edit_tool import code_edit_tool
+from .web_search_tool import web_search_tool
 
 __all__ = [
     "web_page_tool",
@@ -22,4 +23,5 @@ __all__ = [
     "get_all_references_tool",
     "get_symbols_tool",
     "code_edit_tool",
+    "web_search_tool",
 ]

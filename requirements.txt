@@ -26,3 +26,4 @@ anthropic>=0.5.0  # Claude 支持
 flake8==6.0.0
 autopep8==1.4.0
 pycodestyle==2.10.0
+ddgs>=9.0.2
