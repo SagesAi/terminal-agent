@@ -934,7 +934,7 @@ def shell_command_tool(command) -> str:
     Executes a shell command and returns the output.
 
     Args:
-        command: The shell command to execute. Must be a dict with 'command' key and optional 'background' key.
+        command: The shell command to execute. Can be a dict or a JSON string with 'command' key and optional 'background' key.
             - 'command': The shell command string to execute (required)
             - 'background': Boolean indicating whether to run the command in the background (optional, default: False)
 
@@ -942,6 +942,13 @@ def shell_command_tool(command) -> str:
         str: The output of the command.
     """
     try:
+        # Parse command if it's a JSON string
+        if isinstance(command, str):
+            try:
+                command = json.loads(command)
+            except json.JSONDecodeError:
+                return "Error: Invalid JSON format. Expected a JSON string representing a dictionary with 'command' key."
+        
         # Ensure the command is in dictionary format
         if not isinstance(command, dict):
             return "Error: Invalid command format. Expected a dictionary with 'command' key. Example: {'command': 'ls -la', 'background': false}"
