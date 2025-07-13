@@ -1,0 +1,814 @@
+{
+  "shell": {
+    "name": "shell",
+    "description": "Execute shell commands on the system",
+    "parameters": [
+      {
+        "name": "command",
+        "type": "string",
+        "required": true,
+        "description": "The shell command to execute"
+      },
+      {
+        "name": "background",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Whether to run the command in the background"
+      }
+    ],
+    "examples": [
+      {
+        "description": "List files in the current directory",
+        "input": {"command": "ls -la"},
+        "output": "total 32\ndrwxr-xr-x  5 user  staff   160 Jul 13 09:30 .\ndrwxr-xr-x  3 user  staff    96 Jul 13 09:29 ..\n-rw-r--r--  1 user  staff  1024 Jul 13 09:30 file.txt"
+      },
+      {
+        "description": "Run a long-running command in the background",
+        "input": {"command": "python long_script.py", "background": true},
+        "output": "Command running in background with PID 12345"
+      }
+    ],
+    "best_practices": [
+      "Use for system operations, file manipulations, and quick tasks",
+      "Add -y or -f flags to avoid confirmation prompts",
+      "Redirect excessive output to files: command > output.txt",
+      "For source files (.c, .go, .rs), compile before executing",
+      "For long-running commands, set background to true"
+    ],
+    "notes": "Shell commands are blocking by default - they will not return control until the command completes, which can cause timeouts with long-running operations"
+  },
+  "script": {
+    "name": "script",
+    "description": "Create and execute scripts in various languages",
+    "parameters": [
+      {
+        "name": "action",
+        "type": "string",
+        "required": true,
+        "description": "Action to perform: 'create', 'execute', 'create_and_execute', or 'create_and_compile'"
+      },
+      {
+        "name": "filename",
+        "type": "string",
+        "required": true,
+        "description": "Name of the script file (e.g., fix_disk.sh, hello.c)"
+      },
+      {
+        "name": "content",
+        "type": "string",
+        "required": false,
+        "description": "The full content of the script or source code (required for create actions)"
+      },
+      {
+        "name": "interpreter",
+        "type": "string",
+        "required": false,
+        "description": "Interpreter to use (e.g., bash, python3, node) for execution actions"
+      },
+      {
+        "name": "args",
+        "type": "array",
+        "required": false,
+        "description": "List of arguments for execution actions"
+      },
+      {
+        "name": "env_vars",
+        "type": "object",
+        "required": false,
+        "description": "Dictionary of environment variables"
+      },
+      {
+        "name": "timeout",
+        "type": "integer",
+        "required": false,
+        "default": 30,
+        "description": "Time limit in seconds"
+      },
+      {
+        "name": "compile_cmd",
+        "type": "string",
+        "required": false,
+        "description": "Complete compilation command (required for create_and_compile action)"
+      },
+      {
+        "name": "output_file",
+        "type": "string",
+        "required": false,
+        "description": "Expected output file name (for create_and_compile action)"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Create and execute a Python script to list files",
+        "input": {
+          "action": "create_and_execute",
+          "filename": "list_files.py",
+          "content": "import os\nprint('Current directory:', os.getcwd())\nfiles = os.listdir('.')\nfor file in files:\n    print(file)",
+          "interpreter": "python3",
+          "timeout": 30
+        },
+        "output": "Current directory: /Users/user/project\nfile1.txt\nfile2.py\nREADME.md"
+      },
+      {
+        "description": "Create and compile a C program",
+        "input": {
+          "action": "create_and_compile",
+          "filename": "hello.c",
+          "content": "#include <stdio.h>\n\nint main() {\n    printf(\"Hello, World!\\n\");\n    return 0;\n}",
+          "compile_cmd": "gcc hello.c -o hello",
+          "output_file": "hello"
+        },
+        "output": "Compilation successful. Created executable: hello"
+      },
+      {
+        "description": "Execute an existing script with arguments",
+        "input": {
+          "action": "execute",
+          "filename": "process.sh",
+          "interpreter": "bash",
+          "args": ["input.txt", "output.txt"],
+          "env_vars": {"DEBUG": "true", "VERBOSE": "1"}
+        },
+        "output": "Processing input.txt\nWriting to output.txt\nDone."
+      }
+    ],
+    "best_practices": [
+      "Use for complex logic or multi-step tasks",
+      "Include proper error handling in your scripts",
+      "For data processing tasks, consider using libraries like pandas or numpy",
+      "Keep scripts focused on a single task or related set of tasks",
+      "Use comments to explain complex logic"
+    ],
+    "notes": "Scripts have a default timeout to prevent infinite loops or hanging processes"
+  },
+  "message": {
+    "name": "message",
+    "description": "Ask the user a question or request clarification",
+    "parameters": [],
+    "examples": [
+      {
+        "description": "Ask for clarification using direct string input",
+        "input": "Would you like me to optimize the code for readability or performance?",
+        "output": "User response: I'd prefer optimization for performance."
+      },
+      {
+        "description": "Ask for clarification ",
+        "input": "Which configuration option would you prefer: A) Default settings or B) Custom settings?",
+        "output": "User response: B"
+      }
+    ],
+    "best_practices": [
+      "Keep questions concise and specific",
+      "Provide context for why you're asking",
+      "When appropriate, suggest possible answers",
+      "Use numbered options for multiple-choice questions",
+      "Avoid open-ended questions when specific information is needed"
+    ],
+    "notes": "This tool blocks execution until the user responds, so use it judiciously"
+  },
+  "files": {
+    "name": "files",
+    "description": "Perform file operations with precise control",
+    "parameters": [
+      {
+        "name": "operation",
+        "type": "string",
+        "required": true,
+        "description": "The operation to perform (create_file, read_file, update_file, delete_file, list_directory, file_exists, compare_files)"
+      }
+    ],
+    "operation_specific_parameters": {
+      "create_file": [
+        {
+          "name": "file_path",
+          "type": "string",
+          "required": true,
+          "description": "Path to the file to create"
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true,
+          "description": "Content to write to the file"
+        },
+        {
+          "name": "overwrite",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Whether to overwrite if file exists"
+        }
+      ],
+      "read_file": [
+        {
+          "name": "file_path",
+          "type": "string",
+          "required": true,
+          "description": "Path to the file to read"
+        },
+        {
+          "name": "start_line",
+          "type": "integer",
+          "required": false,
+          "description": "Starting line number (1-based indexing)"
+        },
+        {
+          "name": "end_line",
+          "type": "integer",
+          "required": false,
+          "description": "Ending line number (inclusive)"
+        },
+        {
+          "name": "max_lines",
+          "type": "integer",
+          "required": false,
+          "default": 100,
+          "description": "Maximum number of lines to read"
+        }
+      ],
+      "update_file": [
+        {
+          "name": "file_path",
+          "type": "string",
+          "required": true,
+          "description": "Path to the file to update"
+        },
+        {
+          "name": "content",
+          "type": "string",
+          "required": true,
+          "description": "New content for the file"
+        },
+        {
+          "name": "append",
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "description": "Whether to append to the file instead of replacing"
+        }
+      ]
+    },
+    "examples": [
+      {
+        "description": "Create a new file",
+        "input": {
+          "operation": "create_file",
+          "file_path": "example.txt",
+          "content": "This is an example file.",
+          "overwrite": false
+        },
+        "output": "File created successfully: example.txt"
+      },
+      {
+        "description": "Read a file with line limits",
+        "input": {
+          "operation": "read_file",
+          "file_path": "large_file.txt",
+          "start_line": 100,
+          "end_line": 150
+        },
+        "output": "[Lines 100-150 of 1000]\nContent of lines 100-150..."
+      }
+    ],
+    "best_practices": [
+      "For large files, read in chunks using start_line and end_line",
+      "Always check if a file exists before attempting to update it",
+      "Use appropriate error handling for file operations",
+      "Consider using list_directory before performing operations on multiple files"
+    ],
+    "notes": "For large files, the tool automatically reads in chunks of max_lines (default 100 lines)"
+  },
+  "zoekt_search": {
+    "name": "zoekt_search",
+    "description": "Perform powerful code search using the Zoekt search engine",
+    "parameters": [
+      {
+        "name": "names",
+        "type": "array",
+        "required": true,
+        "description": "List of identifiers to search for"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "required": true,
+        "description": "Programming language"
+      },
+      {
+        "name": "repo_dir",
+        "type": "string",
+        "required": false,
+        "default": ".",
+        "description": "Repository directory"
+      },
+      {
+        "name": "num_results",
+        "type": "integer",
+        "required": false,
+        "default": 10,
+        "description": "Maximum number of results per identifier"
+      },
+      {
+        "name": "verbose",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Whether to return detailed information"
+      },
+      {
+        "name": "no_color",
+        "type": "boolean",
+        "required": false,
+        "default": false,
+        "description": "Whether to disable colored output"
+      },
+      {
+        "name": "use_cache",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Whether to use cache"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Search for a function in Python code",
+        "input": {
+          "names": ["get_lsp_toolkit"],
+          "language": "python",
+          "repo_dir": ".",
+          "verbose": true
+        },
+        "output": "Found 3 matches for 'get_lsp_toolkit':\n1. terminal_agent/utils/lsp_client.py:45: def get_lsp_toolkit(language):\n2. terminal_agent/react/tools/goto_definition_tool.py:12: from terminal_agent.utils.lsp_client import get_lsp_toolkit\n3. terminal_agent/react/tools/get_all_references_tool.py:10: from terminal_agent.utils.lsp_client import get_lsp_toolkit"
+      }
+    ],
+    "best_practices": [
+      "Be specific with identifier names to get more relevant results",
+      "Use the language parameter to narrow down search results",
+      "For common terms, consider limiting results with num_results",
+      "Use verbose mode to get more context about each match"
+    ],
+    "notes": "This tool directly returns Python objects (not JSON strings) for better LLM processing"
+  },
+  "get_symbols": {
+    "name": "get_symbols",
+    "description": "Extract symbols (functions, classes, methods) from a file",
+    "parameters": [
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "description": "Path to file to extract symbols from"
+      },
+      {
+        "name": "keyword",
+        "type": "string",
+        "required": false,
+        "description": "Filter symbols by keyword"
+      },
+      {
+        "name": "repo_dir",
+        "type": "string",
+        "required": false,
+        "default": ".",
+        "description": "Repository directory"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "required": false,
+        "description": "Programming language"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Filter symbols by keyword",
+        "input": {
+          "file_path": "terminal_agent/react/tools/get_symbols_tool.py",
+          "keyword": "process_symbols"
+        },
+        "output": "Found 1 symbol in terminal_agent/react/tools/get_symbols_tool.py:\n1. process_symbols (function): Line 48-72"
+      },
+      {
+        "description": "Extract all symbols from a Python file",
+        "input": {
+          "file_path": "terminal_agent/react/tools/get_symbols_tool.py"
+        },
+        "output": "Found 3 symbols in terminal_agent/react/tools/get_symbols_tool.py:\n1. get_symbols_tool (function): Line 10-45\n2. process_symbols (function): Line 48-72\n3. extract_symbols (function): Line 75-120"
+      }
+    ],
+    "best_practices": [
+      "Use this tool before viewing file contents to understand the file's structure",
+      "Filter by keyword to find specific functions or classes",
+      "Combine with goto_definition_tool to navigate complex codebases",
+      "Use the returned line numbers to view specific sections of code"
+    ],
+    "notes": "Use this tool before viewing file contents to understand the file's structure and locate specific functions or classes"
+  },
+  
+  "web_page": {
+    "name": "web_page",
+    "description": "Crawl a web page and extract its content in a readable format",
+    "parameters": [
+      {
+        "name": "url",
+        "type": "string",
+        "required": true,
+        "description": "URL of the web page to crawl"
+      },
+      {
+        "name": "format",
+        "type": "string",
+        "required": false,
+        "description": "Output format, either 'markdown' or 'json' (default: 'markdown')"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Extract content using direct URL string",
+        "input": "https://example.com",
+        "output": "Example Domain\n\nThis domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.\n\nMore information..."
+      },
+      {
+        "description": "Extract content using JSON format",
+        "input": {
+          "url": "https://example.com",
+          "format": "markdown"
+        },
+        "output": "Example Domain\n\nThis domain is for use in illustrative examples in documents. You may use this domain in literature without prior coordination or asking for permission.\n\nMore information..."
+      }
+    ],
+    "best_practices": [
+      "Use for retrieving information from web pages",
+      "Specify max_length for large pages to avoid excessive content",
+      "Consider using web_search first to find relevant pages"
+    ],
+    "notes": "This tool requires internet access and may be affected by website access restrictions"
+  },
+  
+  "get_all_references": {
+    "name": "get_all_references",
+    "description": "Find all references to a symbol in code",
+    "parameters": [
+      {
+        "name": "word",
+        "type": "string",
+        "required": true,
+        "description": "Symbol to find references for"
+      },
+      {
+        "name": "relative_path",
+        "type": "string",
+        "required": true,
+        "description": "Path to the file containing the symbol"
+      },
+      {
+        "name": "line",
+        "type": "integer",
+        "required": false,
+        "description": "Line number where the symbol appears"
+      },
+      {
+        "name": "verbose",
+        "type": "boolean",
+        "required": false,
+        "description": "Whether to return detailed information"
+      },
+      {
+        "name": "num_results",
+        "type": "integer",
+        "required": false,
+        "description": "Maximum number of results"
+      },
+      {
+        "name": "context_limit",
+        "type": "integer",
+        "required": false,
+        "description": "Number of context lines"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Find all references to a function",
+        "input": {
+          "word": "get_lsp_toolkit",
+          "relative_path": "terminal_agent/react/tools/get_all_references_tool.py",
+          "line": 20,
+          "verbose": true
+        },
+        "output": "Found 3 matches for 'get_lsp_toolkit':\n1. terminal_agent/utils/lsp_client.py:45: def get_lsp_toolkit(language):\n2. terminal_agent/react/tools/goto_definition_tool.py:12: from terminal_agent.utils.lsp_client import get_lsp_toolkit\n3. terminal_agent/react/tools/get_all_references_tool.py:10: from terminal_agent.utils.lsp_client import get_lsp_toolkit"
+      }
+    ],
+    "best_practices": [
+      "Use to understand how a symbol is used across the codebase",
+      "Specify line number for more accurate results with common symbol names",
+      "Use verbose mode to get more context about each match"
+    ],
+    "notes": "This tool uses LSP (Language Server Protocol) for accurate code analysis"
+  },
+  
+  "get_folder_structure": {
+    "name": "get_folder_structure",
+    "description": "Get the folder structure of a repository",
+    "parameters": [
+      {
+        "name": "repo_dir",
+        "type": "string",
+        "required": true,
+        "description": "Repository directory"
+      },
+      {
+        "name": "max_depth",
+        "type": "integer",
+        "required": false,
+        "description": "Maximum depth to traverse"
+      },
+      {
+        "name": "exclude_dirs",
+        "type": "array",
+        "required": false,
+        "description": "Directories to exclude"
+      },
+      {
+        "name": "exclude_files",
+        "type": "array",
+        "required": false,
+        "description": "File patterns to exclude"
+      },
+      {
+        "name": "pattern",
+        "type": "string",
+        "required": false,
+        "description": "File name pattern to match"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Get repository structure",
+        "input": {
+          "repo_dir": ".",
+          "max_depth": 2,
+          "exclude_dirs": ["__pycache__", ".git"]
+        },
+        "output": "./\n├── README.md\n├── setup.py\n├── terminal_agent/\n│   ├── __init__.py\n│   ├── cli.py\n│   ├── react/\n│   └── utils/\n└── tests/\n    ├── __init__.py\n    └── test_agent.py"
+      }
+    ],
+    "best_practices": [
+      "Use to understand project organization",
+      "Limit max_depth for large repositories",
+      "Exclude irrelevant directories like __pycache__ and .git"
+    ],
+    "notes": "This tool provides a tree-like visualization of the directory structure"
+  },
+  
+  "goto_definition": {
+    "name": "goto_definition",
+    "description": "Find the definition of a symbol in code",
+    "parameters": [
+      {
+        "name": "word",
+        "type": "string",
+        "required": true,
+        "description": "Symbol to find definition for"
+      },
+      {
+        "name": "line",
+        "type": "integer",
+        "required": true,
+        "description": "Line number"
+      },
+      {
+        "name": "relative_path",
+        "type": "string",
+        "required": true,
+        "description": "Path to the file containing the symbol"
+      },
+      {
+        "name": "verbose",
+        "type": "boolean",
+        "required": false,
+        "description": "Whether to include detailed information"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Find definition of a function",
+        "input": {
+          "word": "create_react_agent",
+          "line": 25,
+          "relative_path": "terminal_agent/cli.py"
+        },
+        "output": "Definition found in terminal_agent/react/agent.py:1068:\ndef create_react_agent(llm_client, system_info, command_analyzer, memory_enabled=False, memory_db=None, user_id=None):\n    \"\"\"\nCreate a ReAct agent with all tools registered.\n\n    Args:\n        llm_client: The LLM client to use.\n        system_info: System information to include in the prompt.\n        command_analyzer: Command analyzer for shell commands.\n        memory_enabled: Whether to enable memory.\n        memory_db: Memory database to use.\n        user_id: User ID for memory.\n\"\"\""
+      }
+    ],
+    "best_practices": [
+      "Use to navigate to source definitions of functions, classes, and variables",
+      "Combine with get_all_references to understand both definition and usage",
+      "Provide accurate line number for better results"
+    ],
+    "notes": "This tool uses LSP (Language Server Protocol) for accurate code navigation"
+  },
+  
+  "web_search": {
+    "name": "web_search",
+    "description": "Perform a web search using DuckDuckGo",
+    "parameters": [
+      {
+        "name": "query",
+        "type": "string",
+        "required": true,
+        "description": "Search terms"
+      },
+      {
+        "name": "max_results",
+        "type": "integer",
+        "required": false,
+        "description": "Maximum number of results to return"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Search for information",
+        "input": {
+          "query": "Python language server protocol",
+          "max_results": 3
+        },
+        "output": "Results for 'Python language server protocol':\n1. Language Server Protocol - Microsoft\n   URL: https://microsoft.github.io/language-server-protocol/\n   Description: The Language Server Protocol (LSP) defines the protocol used between an editor or IDE and a language server that provides language features like auto complete, go to definition, find all references etc.\n\n2. Python Language Server - GitHub\n   URL: https://github.com/python-lsp/python-lsp-server\n   Description: Python Language Server for the Language Server Protocol\n\n3. pylsp: Python Language Server - PyPI\n   URL: https://pypi.org/project/python-lsp-server/\n   Description: Python Language Server for the Language Server Protocol"
+      }
+    ],
+    "best_practices": [
+      "Use specific search terms for better results",
+      "Limit max_results to avoid information overload",
+      "Use web_page tool to retrieve detailed content from search results"
+    ],
+    "notes": "This tool requires internet access and uses DuckDuckGo as the search engine"
+  },
+  
+  "code_edit": {
+    "name": "code_edit",
+    "description": "Edit code files with proper syntax checking and formatting",
+    "parameters": [
+      {
+        "name": "file_path",
+        "type": "string",
+        "required": true,
+        "description": "Path to the file to edit"
+      },
+      {
+        "name": "model",
+        "type": "string",
+        "required": false,
+        "default": "replace",
+        "description": "Editing mode, either 'replace' or 'add'"
+      },
+      {
+        "name": "new_content",
+        "type": "string",
+        "required": true,
+        "description": "The new code to add or replace"
+      },
+      {
+        "name": "old_content",
+        "type": "string",
+        "required": false,
+        "description": "The exact content being replaced (REQUIRED for replace mode)"
+      },
+      {
+        "name": "start_line",
+        "type": "integer",
+        "required": false,
+        "description": "Starting line number (1-based indexing) (REQUIRED for add mode, optional for replace mode)"
+      },
+      {
+        "name": "end_line",
+        "type": "integer",
+        "required": false,
+        "description": "Ending line number (1-based indexing, inclusive) (required when start_line is provided)"
+      },
+      {
+        "name": "language",
+        "type": "string",
+        "required": false,
+        "description": "Programming language of the file (auto-detected from file extension)"
+      },
+      {
+        "name": "description",
+        "type": "string",
+        "required": false,
+        "description": "Description of the edit"
+      },
+      {
+        "name": "check_syntax",
+        "type": "boolean",
+        "required": false,
+        "default": true,
+        "description": "Whether to check syntax after edit"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Edit a Python function using replace mode with old_content",
+        "input": {
+          "file_path": "example.py",
+          "model": "replace",
+          "old_content": "def calculate_total(items):\n    total = 0\n    for item in items:\n        total += item.price\n    return total\n",
+          "new_content": "def calculate_total(items):\n    \"\"\"Calculate the total price of all items.\"\"\"\n    return sum(item.price for item in items)\n",
+          "check_syntax": true
+        },
+        "output": "File example.py edited successfully. Replaced content with new content. Syntax check passed."
+      },
+      {
+        "description": "Add new code using add mode with line numbers",
+        "input": {
+          "file_path": "example.py",
+          "model": "add",
+          "start_line": 10,
+          "end_line": 20,
+          "new_content": "def calculate_average(items):\n    \"\"\"Calculate the average price of all items.\"\"\"\n    return sum(item.price for item in items) / len(items) if items else 0\n",
+          "check_syntax": true
+        },
+        "output": "File example.py edited successfully. Added new content at line 10. Syntax check passed."
+      }
+    ],
+    "best_practices": [
+      "Always specify exact line numbers for precise edits",
+      "Use check_syntax=true to validate code changes",
+      "Include descriptive comments in your code edits",
+      "Make focused changes rather than editing large sections"
+    ],
+    "notes": "This tool ensures code edits maintain proper syntax and formatting"
+  },
+  
+  "get_tool_info": {
+    "name": "get_tool_info",
+    "description": "Get detailed information about how to use a specific tool",
+    "parameters": [
+      {
+        "name": "tool_name",
+        "type": "string",
+        "required": true,
+        "description": "Name of the tool to get information about"
+      },
+      {
+        "name": "detail_level",
+        "type": "string",
+        "required": false,
+        "description": "Level of detail ('basic' or 'full', default: 'basic')"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Get basic information about a tool",
+        "input": {
+          "tool_name": "shell",
+          "detail_level": "basic"
+        },
+        "output": "{\n  \"name\": \"shell\",\n  \"description\": \"Execute shell commands on the system\",\n  \"parameters\": [\n    {\n      \"name\": \"command\",\n      \"type\": \"string\",\n      \"required\": true,\n      \"description\": \"The shell command to execute\"\n    },\n    {\n      \"name\": \"background\",\n      \"type\": \"boolean\",\n      \"required\": false,\n      \"description\": \"Whether to run the command in the background\"\n    }\n  ]\n}"
+      },
+      {
+        "description": "Get detailed information about a tool",
+        "input": {
+          "tool_name": "script",
+          "detail_level": "full"
+        },
+        "output": "{\n  \"name\": \"script\",\n  \"description\": \"Create and execute scripts in various languages\",\n  \"parameters\": [...],\n  \"examples\": [...],\n  \"best_practices\": [...],\n  \"notes\": \"Scripts have a default timeout to prevent infinite loops or hanging processes\"\n}"
+      }
+    ],
+    "best_practices": [
+      "Use 'basic' detail level for quick reference",
+      "Use 'full' detail level to see examples and best practices",
+      "Query this tool when unsure about parameter requirements",
+      "Use this tool to discover advanced features of other tools"
+    ],
+    "notes": "This tool helps reduce prompt size by externalizing tool documentation"
+  },
+  
+  "expand_message": {
+    "name": "expand_message",
+    "description": "Expand a message that was truncated due to length",
+    "parameters": [
+      {
+        "name": "message_id",
+        "type": "string",
+        "required": true,
+        "description": "ID of the truncated message"
+      }
+    ],
+    "examples": [
+      {
+        "description": "Expand a truncated message",
+        "input": {
+          "message_id": "msg_123456"
+        },
+        "output": "Full message content: This is the complete content of the message that was previously truncated. It contains all the details that were not visible in the truncated version, including important information about the task at hand and specific instructions for implementation."
+      }
+    ],
+    "best_practices": [
+      "Use when you see a message ending with '... (truncated)'" ,
+      "Always provide the message_id from the truncated message",
+      "Only use for important messages that contain critical information"
+    ],
+    "notes": "This tool is only available when memory is enabled"
+  }
+}

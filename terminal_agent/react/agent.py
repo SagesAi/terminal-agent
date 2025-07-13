@@ -39,6 +39,7 @@ from terminal_agent.react.tools.get_symbols_tool import get_symbols_tool
 from terminal_agent.react.tools.code_edit_tool import code_edit_tool
 from terminal_agent.react.tools.expand_message_tool import expand_message_tool
 from terminal_agent.react.tools.web_search_tool import web_search_tool
+from terminal_agent.react.tools.get_tool_info_tool import get_tool_info_tool
 # Do not import from terminal_agent.react.tools as it would cause circular imports
 # Import expand_message_tool module when needed
 
@@ -74,6 +75,7 @@ class ToolName(Enum):
     CODE_EDIT = auto() # Code edit tool for precise code modifications with syntax checking
     EXPAND_MESSAGE = auto() # Expand message tool for viewing full content of truncated messages
     WEB_SEARCH = auto() # Web search tool for searching the internet
+    GET_TOOL_INFO = auto() # Tool for retrieving information about other tools
     NONE = auto()
 
     def __str__(self) -> str:
@@ -1150,6 +1152,13 @@ def create_react_agent(llm_client: LLMClient,
         ToolName.CODE_EDIT,
         code_edit_tool,
         "Edit code files with proper syntax checking and formatting. Send a JSON request with 'file_path' (path to the file to edit), 'start_line' (starting line number), 'end_line' (ending line number), 'new_content' (replacement code), 'language' (optional, auto-detected from file extension), 'description' (optional), and 'check_syntax' (optional, whether to check syntax after edit)."
+    )
+    
+    # Register the get tool info tool
+    agent.register_tool(
+        ToolName.GET_TOOL_INFO,
+        get_tool_info_tool,
+        "Get detailed information about how to use a specific tool. Send a JSON request with 'tool_name' (name of the tool to get information about) and 'detail_level' (optional, 'basic' or 'full', default: 'basic')."
     )
 
     # Register the expand message tool if memory is enabled
