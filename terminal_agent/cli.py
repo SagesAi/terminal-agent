@@ -257,6 +257,11 @@ TERMINAL_AGENT_MODEL=gpt-4
 # TERMINAL_AGENT_PROVIDER=anthropic
 # TERMINAL_AGENT_MODEL=claude-3-sonnet
 
+# Kimi settings (alternative)
+# KIMI_API_KEY=your_kimi_key_here
+# TERMINAL_AGENT_PROVIDER=kimi
+# TERMINAL_AGENT_MODEL=kimi-pro
+
 # Ollama settings (for local models)
 # TERMINAL_AGENT_PROVIDER=ollama
 # TERMINAL_AGENT_MODEL=llama3  # or any model you have pulled in Ollama
@@ -323,6 +328,7 @@ TERMINAL_AGENT_MODEL=gpt-4
     google_api_key = os.getenv("GOOGLE_API_KEY")
     anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
     vllm_api_key = os.getenv("VLLM_API_KEY")  # Optional for VLLM
+    kimi_api_key = os.getenv("KIMI_API_KEY")
 
     # Check for API base URLs for local providers
     ollama_api_base = os.getenv("OLLAMA_API_BASE")
@@ -352,10 +358,13 @@ TERMINAL_AGENT_MODEL=gpt-4
         elif provider == "vllm":
             from terminal_agent.utils.llm_providers.vllm import VLLMProvider
             model = VLLMProvider.get_default_model()
+        elif provider == "kimi":
+            from terminal_agent.utils.llm_providers.kimi import KimiProvider
+            model = KimiProvider.get_default_model()
 
     # 设置 API 基础 URL
     api_base = None
-    if provider == "openai" or provider == "deepseek" or provider == "gemini" or provider == "anthropic":
+    if provider == "openai" or provider == "deepseek" or provider == "gemini" or provider == "anthropic" or provider == "kimi":
         api_base = os.getenv("TERMINAL_AGENT_API_BASE")
     elif provider == "ollama":
         api_base = ollama_api_base or "http://localhost:11434"
@@ -393,6 +402,22 @@ TERMINAL_AGENT_MODEL=gpt-4
                 "2. Create a .terminal_agent.env file in your home directory")
             console.print(
                 "3. Set the DEEPSEEK_API_KEY environment variable before running the application")
+            console.print(
+                "\nOr switch to another provider by setting TERMINAL_AGENT_PROVIDER and providing the corresponding API key")
+            sys.exit(1)
+    elif provider == "kimi":
+        api_key = os.getenv("KIMI_API_KEY")
+        if not api_key:
+            console.print(
+                "[bold red]Error: KIMI_API_KEY not found in environment variables or .env file[/bold red]")
+            console.print(
+                "[bold yellow]Please set your Kimi API key using one of these methods:[/bold yellow]")
+            console.print(
+                "1. Create a .env file in the current directory with: KIMI_API_KEY=your_key_here")
+            console.print(
+                "2. Create a .terminal_agent.env file in your home directory")
+            console.print(
+                "3. Set the KIMI_API_KEY environment variable before running the application")
             console.print(
                 "\nOr switch to another provider by setting TERMINAL_AGENT_PROVIDER and providing the corresponding API key")
             sys.exit(1)

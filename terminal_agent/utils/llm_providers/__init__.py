@@ -11,7 +11,7 @@ from .gemini import GeminiProvider
 from .anthropic import AnthropicProvider
 from .ollama import OllamaProvider
 from .vllm import VLLMProvider
-
+from .kimi import KimiProvider
 __all__ = [
     'BaseLLMProvider',
     'OpenAIProvider',
@@ -20,4 +20,5 @@ __all__ = [
     'AnthropicProvider',
     'OllamaProvider',
     'VLLMProvider',
+    'KimiProvider'
 ]

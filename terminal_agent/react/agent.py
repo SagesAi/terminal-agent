@@ -52,7 +52,10 @@ logger = get_logger(__name__)
 Observation = Union[str, Exception]
 
 # Default template path in the package
-PROMPT_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "templates", "react_prompt1.txt")
+PROMPT_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "templates",
+    "react_prompt1.txt")
 DEFAULT_MAX_ITERATIONS = 15
 
 
@@ -65,15 +68,18 @@ class ToolName(Enum):
     SCRIPT = auto()
     MESSAGE = auto()  # Message tool for asking questions to the user
     FILES = auto()    # File operations tool for file management
-    WEB_PAGE = auto() # Web page tool for retrieving web content
-    GET_ALL_REFERENCES = auto() # Get all references tool for finding all references to a symbol
-    GET_FOLDER_STRUCTURE = auto() # Get folder structure tool for visualizing directory structure
-    GOTO_DEFINITION = auto() # Go to definition tool for finding symbol definitions
-    ZOEKT_SEARCH = auto() # Zoekt search tool for powerful code search
-    GET_SYMBOLS = auto() # Get symbols tool for extracting symbols from files
-    CODE_EDIT = auto() # Code edit tool for precise code modifications with syntax checking
-    EXPAND_MESSAGE = auto() # Expand message tool for viewing full content of truncated messages
-    WEB_SEARCH = auto() # Web search tool for searching the internet
+    WEB_PAGE = auto()  # Web page tool for retrieving web content
+    # Get all references tool for finding all references to a symbol
+    GET_ALL_REFERENCES = auto()
+    # Get folder structure tool for visualizing directory structure
+    GET_FOLDER_STRUCTURE = auto()
+    GOTO_DEFINITION = auto()  # Go to definition tool for finding symbol definitions
+    ZOEKT_SEARCH = auto()  # Zoekt search tool for powerful code search
+    GET_SYMBOLS = auto()  # Get symbols tool for extracting symbols from files
+    CODE_EDIT = auto()  # Code edit tool for precise code modifications with syntax checking
+    # Expand message tool for viewing full content of truncated messages
+    EXPAND_MESSAGE = auto()
+    WEB_SEARCH = auto()  # Web search tool for searching the internet
     NONE = auto()
 
     def __str__(self) -> str:
@@ -96,7 +102,8 @@ class Tool:
     A wrapper class for tools used by the agent, executing a function based on tool type.
     """
 
-    def __init__(self, name: ToolName, func: Callable[[str], str], description: str = ""):
+    def __init__(self, name: ToolName, func: Callable[[
+                 str], str], description: str = ""):
         """
         Initializes a Tool with a name and an associated function.
 
@@ -130,17 +137,18 @@ class ReActAgent:
     """
     Defines the ReAct agent responsible for reasoning, acting, and observing to solve tasks.
     """
-    
+
     def _show_processing_message(self, message: str) -> None:
         """
         Shows a user-friendly processing message panel when encountering errors.
-        
+
         Args:
             message (str): The specific message to display in the panel.
         """
         console.print(Panel(
-            f"[bold yellow]Processing your request...[/bold yellow]\n[dim]{message}[/dim]", 
-            title="[bold blue]Terminal Agent[/bold blue]", 
+            f"[bold yellow]Processing your request...[/bold yellow]\n[dim]{
+                message}[/dim]",
+            title="[bold blue]Terminal Agent[/bold blue]",
             border_style="blue",
             expand=False
         ))
@@ -195,11 +203,14 @@ class ReActAgent:
                 else:
                     self.memory_db = memory_db
 
-                self.context_manager = ContextManager(self.memory_db, llm_client)
-                self.session_manager = SessionManager(self.memory_db, self.context_manager)
+                self.context_manager = ContextManager(
+                    self.memory_db, llm_client)
+                self.session_manager = SessionManager(
+                    self.memory_db, self.context_manager)
                 logger.info("Memory system initialized")
             except ImportError as e:
-                logger.warning(f"Failed to import memory modules: {e}. Memory system disabled.")
+                logger.warning(f"Failed to import memory modules: {
+                               e}. Memory system disabled.")
                 self.memory_enabled = False
                 self.memory_db = None
                 self.context_manager = None
@@ -213,7 +224,8 @@ class ReActAgent:
             self._create_default_template(template_path)
             logger.info(f"Created default template at {template_path}")
 
-    def register_tool(self, name: ToolName, func: Callable[[str], str], description: str = "") -> None:
+    def register_tool(self, name: ToolName, func: Callable[[
+                      str], str], description: str = "") -> None:
         """
         Registers a tool to the agent.
 
@@ -241,22 +253,26 @@ class ReActAgent:
         self.messages.append(message)
 
         # Store message in memory system if enabled
-        if self.memory_enabled and self.session_id and role in ["user", "assistant", "system"]:
+        if self.memory_enabled and self.session_id and role in [
+                "user", "assistant", "system"]:
             try:
                 message_type = "thinking" if "Thought:" in content and role == "assistant" else "message"
-                self.session_manager.add_message(self.session_id, role, content, message_type)
+                self.session_manager.add_message(
+                    self.session_id, role, content, message_type)
             except Exception as e:
                 logger.error(f"Error storing message in memory: {e}")
 
         if display:
             if role == "user":
-                console.print(f"\n[bold green]User:[/bold green] {content}")
+                console.print(f"\n[bold green]User: [/bold green] {content}")
             elif role == "assistant":
-                console.print(f"\n[bold blue]Assistant:[/bold blue] {content}")
+                console.print(
+                    f"\n[bold blue]Assistant: [/bold blue] {content}")
             elif role == "system":
-                console.print(f"\n[bold yellow]System:[/bold yellow] {content}")
+                console.print(
+                    f"\n[bold yellow]System: [/bold yellow] {content}")
             else:
-                console.print(f"\n[bold]{role}:[/bold] {content}")
+                console.print(f"\n[bold]{role}: [/bold] {content}")
 
     def get_history(self) -> str:
         """
@@ -265,7 +281,8 @@ class ReActAgent:
         Returns:
             str: Formatted history of messages.
         """
-        return "\n".join([f"{message.role}: {message.content}" for message in self.messages])
+        return "\n".join(
+            [f"{message.role}: {message.content}" for message in self.messages])
 
     def think(self) -> None:
         """
@@ -277,7 +294,10 @@ class ReActAgent:
         # Check if we've reached the maximum number of iterations
         if self.current_iteration > self.max_iterations:
             logger.warning("Reached maximum iterations. Stopping.")
-            self.trace("assistant", "I'm sorry, but I couldn't find a satisfactory answer within the allowed number of iterations. Here's what I know so far: " + self.get_history())
+            self.trace(
+                "assistant",
+                "I'm sorry, but I couldn't find a satisfactory answer within the allowed number of iterations. Here's what I know so far: " +
+                self.get_history())
             return
 
         # Check if operations should be stopped
@@ -292,15 +312,17 @@ class ReActAgent:
 
             # get history messages
             history_messages = self._convert_history_to_messages()
-            
+
             # check if need to compress messages
             try:
-                # 
-                
+                #
+
                 # use context manager to compress messages
-                if hasattr(self, 'session_manager') and hasattr(self.session_manager, 'context_manager'):
+                if hasattr(self, 'session_manager') and hasattr(
+                        self.session_manager, 'context_manager'):
                     context_manager = self.session_manager.context_manager
-                    if context_manager and hasattr(context_manager, 'compress_react_messages'):
+                    if context_manager and hasattr(
+                            context_manager, 'compress_react_messages'):
                         # use context_manager's compress_react_messages method
                         compressed_history = context_manager.compress_react_messages(
                             messages=history_messages,
@@ -313,11 +335,12 @@ class ReActAgent:
             except Exception as e:
                 logger.error(f"compress messages error: {e}")
                 # continue using original messages
-        
+
             # add processed history messages
             prompt_messages.extend(history_messages)
-            
-            logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {len(history_messages)} history messages")
+
+            logger.debug(f"Using {len(self.base_prompt_messages)} base messages and {
+                         len(history_messages)} history messages")
             # Get the LLM's response using the message-based method
             response = self.llm_client.call_with_messages(prompt_messages)
             logger.debug(f"Thinking => {response}")
@@ -330,14 +353,20 @@ class ReActAgent:
         except ConnectionError as e:
             # Handle connection error, exit React loop directly
             logger.error(f"Connection error in ReActAgent.think: {str(e)}")
-            self.trace("user", f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {str(e)}", display=True)
+            self.trace(
+                "user",
+                f"Error: Connection to LLM API failed. Please check your internet connection and API settings. Details: {
+                    str(e)}",
+                display=True)
             # No longer call self.think(), exit the loop directly
-            console.print("[bold red]Exiting ReAct loop due to connection error.[/bold red]")
+            console.print(
+                "[bold red]Exiting ReAct loop due to connection error.[/bold red]")
             return
 
         except Exception as e:
             logger.debug(f"Error in ReActAgent.think: {str(e)}")
-            self._show_processing_message("I encountered a small hiccup but I'm trying again automatically.")
+            self._show_processing_message(
+                "I encountered a small hiccup but I'm trying again automatically.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
@@ -387,29 +416,32 @@ class ReActAgent:
                         tool_name = ToolName[tool_name_str]
                     except KeyError:
                         logger.error(f"Unknown tool name: {action['name']}")
-                        self.trace("user", f"Error: Unknown tool name '{action['name']}'")
+                        self.trace(
+                            "user", f"Error: Unknown tool name '{
+                                action['name']}'")
                         self.think()
                         return
 
                 # Check if the tool is NONE
                 if tool_name == ToolName.NONE:
-                    logger.debug("No action needed. Proceeding to final answer.")
+                    logger.debug(
+                        "No action needed. Proceeding to final answer.")
                     self.think()
                 else:
                     # Get the tool input
                     tool_input = action.get("input", self.query)
-                    
-                    # Ensure the input is serialized to a JSON string if it's a dict
+
+                    # Ensure the input is serialized to a JSON string if it's a
+                    # dict
                     if isinstance(tool_input, dict):
                         tool_input = json.dumps(tool_input)
-                        
+
                     # Execute the action without displaying intermediate steps
                     self.act(tool_name, tool_input)
 
             elif "final_answer" in parsed_response:
                 # Format and display the final answer with rich formatting
                 answer = parsed_response['final_answer']
-        
 
                 # Create a beautiful panel for the answer
                 console.print("\n")  # Add some spacing
@@ -423,7 +455,10 @@ class ReActAgent:
 
                 # Record the answer in the trace but don't print it again
 
-                self.trace("assistant", f"Final Answer: {answer}", display=False)
+                self.trace(
+                    "assistant",
+                    f"Final Answer: {answer}",
+                    display=False)
 
             else:
                 # Handle invalid response format
@@ -436,13 +471,15 @@ class ReActAgent:
 
         except json.JSONDecodeError as e:
             logger.debug(f"JSON decode error in ReActAgent.decide: {str(e)}")
-            self._show_processing_message("I'm refining my response format and will try again.")
+            self._show_processing_message(
+                "I'm refining my response format and will try again.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
         except Exception as e:
             logger.debug(f"Error in ReActAgent.decide: {str(e)}")
-            self._show_processing_message("I encountered a small hiccup but I'm trying again automatically.")
+            self._show_processing_message(
+                "I encountered a small hiccup but I'm trying again automatically.")
             self.trace("user", f"{str(e)}. Trying again.")
             self.think()
 
@@ -475,11 +512,11 @@ class ReActAgent:
                 self.trace("user", "Task aborted by user", display=False)
                 return
 
-
             # Store tool call in memory system if enabled
             if self.memory_enabled and self.session_id:
                 try:
-                    # Get the last message ID (should be the assistant's thinking message)
+                    # Get the last message ID (should be the assistant's
+                    # thinking message)
                     last_message = None
                     conn = self.memory_db.conn
                     cursor = conn.execute('''
@@ -513,7 +550,8 @@ class ReActAgent:
                 self.trace("user", truncated_result, display=False)
             else:
                 # 对于其他工具，格式化为系统观察结果
-                observation = f"Observation from {tool_name}: {truncated_result}"
+                observation = f"Observation from {
+                    tool_name}: {truncated_result}"
                 # 记录观察结果但不显示完整详情
                 logger.debug(observation)
                 self.trace("user", observation, display=False)
@@ -522,23 +560,26 @@ class ReActAgent:
             self.think()
         else:
             # Tool not found
-            error_message = f"Tool '{tool_name}' not found. Available tools: {', '.join([str(t) for t in self.tools.keys()])}"
+            error_message = f"Tool '{tool_name}' not found. Available tools: {
+                ', '.join([str(t) for t in self.tools.keys()])}"
             self.trace("user", f"Error: {error_message}")
             self.think()
 
     def safe_markdown(self, input_data):
-        # if input_data is dict, convert to JSON string and wrap in Markdown code block
+        # if input_data is dict, convert to JSON string and wrap in Markdown
+        # code block
         if isinstance(input_data, dict):
             input_data = f"```json\n{json.dumps(input_data, indent=2)}\n```"
         elif not isinstance(input_data, str):
-            # if input_data is not string, convert to string format (optional: you can also raise an error)
+            # if input_data is not string, convert to string format (optional:
+            # you can also raise an error)
             input_data = str(input_data)
         return input_data
 
     def _get_json_format_example(self) -> str:
         """
         Returns a formatted example of the expected JSON response format.
-        
+
         Returns:
             str: A string containing the formatted example with markdown.
         """
@@ -612,7 +653,7 @@ class ReActAgent:
                 stack.pop()
                 if not stack:
                     start = start_indices.pop()
-                    candidates.append(cleaned_response[start:i+1])
+                    candidates.append(cleaned_response[start:i + 1])
 
         # Sort by length in descending order, prioritize longer JSON objects
         #candidates.sort(key=len, reverse=True)
@@ -624,7 +665,8 @@ class ReActAgent:
             except json.JSONDecodeError:
                 continue
 
-        # If no valid JSON object is found, raise an exception with format example
+        # If no valid JSON object is found, raise an exception with format
+        # example
         try:
             return json.loads(cleaned_response)
         except json.JSONDecodeError as e:
@@ -633,7 +675,6 @@ class ReActAgent:
                 f"{self._get_json_format_example()}"
             )
             raise ValueError(error_msg) from e
-
 
     def _truncate_long_output(self, text: str, max_tokens: int = 4000) -> str:
         """
@@ -650,7 +691,8 @@ class ReActAgent:
         Returns:
             str: The processed text
         """
-            # Roughly estimate token count (approximately 4 characters per token for English)
+        # Roughly estimate token count (approximately 4 characters per token
+        # for English)
         estimated_tokens = len(text) / 4
 
         if estimated_tokens <= max_tokens:
@@ -701,7 +743,8 @@ class ReActAgent:
             with open(template_path, 'r', encoding='utf-8') as f:
                 return f.read()
         except FileNotFoundError:
-            logger.warning(f"Template file not found at {template_path}. Creating default template.")
+            logger.warning(f"Template file not found at {
+                           template_path}. Creating default template.")
             self._create_default_template(template_path)
             with open(template_path, 'r', encoding='utf-8') as f:
                 return f.read()
@@ -811,28 +854,35 @@ Remember:
 
         # Initialize base prompt message list for reuse in each reasoning step
         self.base_prompt_messages = []
-        
+
         # Ensure we always use the latest system information, especially the current working directory
-        # If in remote execution mode, get the current working directory from the remote system
+        # If in remote execution mode, get the current working directory from
+        # the remote system
         if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
             try:
                 exit_code, stdout, stderr = forwarder.forward_command("pwd")
                 if exit_code == 0:
                     self.system_info["current_working_directory"] = stdout.strip()
-                    logger.info(f"Updated remote working directory: {self.system_info['current_working_directory']}")
+                    logger.info(
+                        f"Updated remote working directory: {
+                            self.system_info['current_working_directory']}")
                 else:
-                    logger.warning(f"Failed to get remote working directory: {stderr}")
+                    logger.warning(
+                        f"Failed to get remote working directory: {stderr}")
             except Exception as e:
                 logger.error(f"Error getting remote working directory: {e}")
         else:
             # Get local working directory
             self.system_info["current_working_directory"] = os.getcwd()
-            logger.info(f"Updated local working directory: {self.system_info['current_working_directory']}")
+            logger.info(
+                f"Updated local working directory: {
+                    self.system_info['current_working_directory']}")
 
         # Create the system prompt first
         self.system_prompt = self.template.format(
             query=self.query,
-            tools=', '.join([f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
+            tools=', '.join(
+                [f"{tool.name}: {tool.description}" for tool in self.tools.values()]),
             **self.system_info
         )
         system_message = {"role": "system", "content": self.system_prompt}
@@ -840,21 +890,29 @@ Remember:
         # Initialize or get session if memory is enabled
         if self.memory_enabled:
             try:
-                self.session_id = self.session_manager.get_or_create_session(self.user_id)
-                logger.info(f"Using session {self.session_id} for user {self.user_id}")
+                self.session_id = self.session_manager.get_or_create_session(
+                    self.user_id)
+                logger.info(
+                    f"Using session {
+                        self.session_id} for user {
+                        self.user_id}")
 
-                # Calculate system prompt tokens to adjust available tokens for memory
+                # Calculate system prompt tokens to adjust available tokens for
+                # memory
                 try:
                     # Get the model's context window size
-                    model_context_size = self._get_model_context_size(self.model)
+                    model_context_size = self._get_model_context_size(
+                        self.model)
 
                     # Calculate system prompt tokens
-                    system_tokens = self.session_manager.context_manager.get_token_count([system_message], self.model)
+                    system_tokens = self.session_manager.context_manager.get_token_count(
+                        [system_message], self.model)
                     logger.debug(f"System prompt token count: {system_tokens}")
 
                     # Calculate available tokens for memory messages
                     available_tokens = model_context_size - system_tokens
-                    logger.debug(f"Available tokens for memory: {available_tokens}")
+                    logger.debug(
+                        f"Available tokens for memory: {available_tokens}")
 
                     # Get messages from memory for LLM context with token limit
                     memory_messages = self.session_manager.get_messages_for_llm(
@@ -864,18 +922,22 @@ Remember:
                     )
 
                     if memory_messages:
-                        logger.debug(f"Loaded {len(memory_messages)} messages from memory")
+                        logger.debug(
+                            f"Loaded {
+                                len(memory_messages)} messages from memory")
                         # Add memory messages to the base prompt message list
                         self.base_prompt_messages.extend(memory_messages)
                 except Exception as e:
                     logger.error(f"Error loading memory messages: {e}")
                     # Fallback to loading messages without token calculation
                     try:
-                        memory_messages = self.session_manager.get_messages_for_llm(self.user_id, model=self.model)
+                        memory_messages = self.session_manager.get_messages_for_llm(
+                            self.user_id, model=self.model)
                         if memory_messages:
                             self.base_prompt_messages.extend(memory_messages)
                     except Exception as inner_e:
-                        logger.error(f"Error in fallback memory loading: {inner_e}")
+                        logger.error(
+                            f"Error in fallback memory loading: {inner_e}")
             except Exception as e:
                 logger.error(f"Error initializing memory session: {e}")
                 self.session_id = None
@@ -912,6 +974,8 @@ Remember:
             max_tokens = 1000 * 1000 - 300000
         elif 'deepseek' in model.lower():
             max_tokens = 128 * 1000 - 28000
+        elif 'kimi' in model.lower():
+            max_tokens = 128 * 1000 - 28000
         else:
             max_tokens = 41 * 1000 - 10000
         return max_tokens
@@ -928,6 +992,7 @@ Remember:
             role = "assistant" if message.role == "assistant" else "user"
             messages.append({"role": role, "content": message.content})
         return messages
+
 
 def shell_command_tool(command) -> str:
     """
@@ -948,26 +1013,28 @@ def shell_command_tool(command) -> str:
                 command = json.loads(command)
             except json.JSONDecodeError:
                 return "Error: Invalid JSON format. Expected a JSON string representing a dictionary with 'command' key."
-        
+
         # Ensure the command is in dictionary format
         if not isinstance(command, dict):
             return "Error: Invalid command format. Expected a dictionary with 'command' key. Example: {'command': 'ls -la', 'background': false}"
-        
+
         # Check if the dictionary contains the required 'command' key
         if 'command' not in command:
             return "Error: Missing 'command' key in the input dictionary. Example: {'command': 'ls -la', 'background': false}"
-        
+
         # Extract the command string and background execution flag
         cmd_str = command['command']
         background = command.get('background', False)
-        
+
         # If background execution mode is enabled, modify the command format
         if background:
             # On Linux/macOS, use nohup and & to run commands in the background
-            # Redirect standard output and error output to /dev/null or a specified log file
+            # Redirect standard output and error output to /dev/null or a
+            # specified log file
             cmd_str = f"nohup {cmd_str} > /dev/null 2>&1 &"
-            console.print(f"[bold cyan]Running command in background: {cmd_str}[/bold cyan]")
-        
+            console.print(f"[bold cyan]Running command in background: {
+                          cmd_str}[/bold cyan]")
+
         # Execute the command
         return_code, output, _ = execute_command(cmd_str)
 
@@ -975,7 +1042,7 @@ def shell_command_tool(command) -> str:
         if background:
             return f"Command started in background. Return Code: {return_code}"
         else:
-            return f"Return Code: {return_code}\nOutput:\n{output}"
+            return f"Return Code: {return_code}\nOutput: \n{output}"
     except Exception as e:
         return f"Error executing command: {str(e)}"
 
@@ -1005,14 +1072,16 @@ def message_tool(query: str) -> str:
             if "question" in query:
                 question = query["question"]
             else:
-                # If there is no question field in the dictionary, try to convert the entire dictionary to a string
+                # If there is no question field in the dictionary, try to
+                # convert the entire dictionary to a string
                 question = str(query)
         else:
             # Handle string type input
             question = query
 
             # Try to parse JSON format (if it's a JSON string)
-            if isinstance(query, str) and query.startswith('{') and query.endswith('}'):
+            if isinstance(query, str) and query.startswith(
+                    '{') and query.endswith('}'):
                 try:
                     query_data = json.loads(query)
                     if "question" in query_data:
@@ -1039,7 +1108,8 @@ def message_tool(query: str) -> str:
 
         # Handle special keywords
         if user_response.lower() in ["quit", "exit", "stop"]:
-            console.print("[bold yellow]Aborting current task as requested by user[/bold yellow]")
+            console.print(
+                "[bold yellow]Aborting current task as requested by user[/bold yellow]")
             return "__ABORT_TASK__"
 
         # Return the user's answer
@@ -1050,11 +1120,11 @@ def message_tool(query: str) -> str:
 
 
 def create_react_agent(llm_client: LLMClient,
-                      system_info: Dict[str, Any],
-                      command_analyzer: Optional[CommandAnalyzer] = None,
-                      memory_enabled: bool = False,
-                      memory_db: Optional[Any] = None,
-                      user_id: str = "default_user") -> ReActAgent:
+                       system_info: Dict[str, Any],
+                       command_analyzer: Optional[CommandAnalyzer] = None,
+                       memory_enabled: bool = False,
+                       memory_db: Optional[Any] = None,
+                       user_id: str = "default_user") -> ReActAgent:
     """
     Creates and configures a ReAct agent with default tools.
 
@@ -1070,7 +1140,13 @@ def create_react_agent(llm_client: LLMClient,
         ReActAgent: A configured ReAct agent.
     """
     # Create the agent
-    agent = ReActAgent(llm_client, system_info, command_analyzer, memory_enabled=memory_enabled, memory_db=memory_db, user_id=user_id)
+    agent = ReActAgent(
+        llm_client,
+        system_info,
+        command_analyzer,
+        memory_enabled=memory_enabled,
+        memory_db=memory_db,
+        user_id=user_id)
 
     # Register the shell command tool
     agent.register_tool(
@@ -1137,14 +1213,14 @@ def create_react_agent(llm_client: LLMClient,
         get_symbols_tool,
         "Extract symbols from a file. Send a JSON request with 'file_path' (file to extract symbols from), 'repo_dir' (optional, repository directory), 'language' (optional, programming language), and 'keyword' (optional, filter symbols by keyword)."
     )
-    
+
     # Register the web search tool
     agent.register_tool(
         ToolName.WEB_SEARCH,
         web_search_tool,
         "Perform a web search using DuckDuckGo. Send a JSON request with 'query' (search terms) and 'max_results' (optional, maximum number of results to return)."
     )
-    
+
     # Register the code edit tool
     agent.register_tool(
         ToolName.CODE_EDIT,
