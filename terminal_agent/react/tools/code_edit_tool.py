@@ -11,7 +11,10 @@ import traceback
 import subprocess
 import tempfile
 import ast
-from typing import Dict, Any, Optional, Union, List
+import difflib
+import re
+from typing import Dict, Any, Optional, Union, List, Tuple
+
 
 # Import command forwarder for remote file operations
 from terminal_agent.utils.command_forwarder import forwarder, remote_file_operation
@@ -30,6 +33,242 @@ except ImportError as e:
 
 # Configure logging
 logger = logging.getLogger(__name__)
+
+class CodeEditError(Exception):
+    """Base exception for code editing errors"""
+    pass
+
+class MatchNotFoundError(CodeEditError):
+    """Raised when content cannot be found in the file"""
+    pass
+
+class AmbiguousMatchError(CodeEditError):
+    """Raised when multiple matches are found in the file"""
+    pass
+
+class CodeEditor:
+    def __init__(self, similarity_threshold: float = 0.8):
+        """
+        Initialize the code editor with configurable settings.
+        
+        Args:
+            similarity_threshold: Minimum similarity score (0-1) to consider a match
+        """
+        self.similarity_threshold = similarity_threshold
+        self.strategies = [
+            self._try_exact_match,
+            self._try_normalized_match,
+            self._try_relative_indent_match,
+            self._try_fuzzy_line_match,
+        ]
+    
+    def find_best_match(self, file_content: str, search_text: str) -> Tuple[int, int, float]:
+        """
+        Find the best match of search_text in file_content using multiple matching strategies.
+        
+        Tries different matching strategies in order of specificity, from most exact to most fuzzy.
+        
+        Returns:
+            Tuple of (start_line, end_line, similarity_score)
+            
+        Raises:
+            MatchNotFoundError: If no good match is found with any strategy
+        """
+        if not search_text.strip():
+            raise ValueError("Search text cannot be empty or whitespace only")
+            
+        file_lines = file_content.splitlines(keepends=True)
+        search_lines = search_text.splitlines(keepends=True)
+        
+        # Try each strategy in order until we find a match
+        for strategy in self.strategies:
+            try:
+                result = strategy(file_content, file_lines, search_text, search_lines)
+                if result:
+                    start_line, end_line, score = result
+                    if score >= self.similarity_threshold:
+                        return start_line, end_line, score
+            except Exception as e:
+                logger.debug(f"Strategy {strategy.__name__} failed: {str(e)}")
+                continue
+        
+        # If we get here, no strategy found a good enough match
+        best_ratio = self._calculate_best_ratio(file_content, search_text)
+        raise MatchNotFoundError(
+            f"Could not find a good match (best similarity: {best_ratio:.2f}, threshold: {self.similarity_threshold}).\n"
+            "To improve matching, try:\n"
+            "1. Ensure the code block includes more unique identifiers (function/class names, unique strings)\n"
+            "2. Include surrounding context (2-3 lines before/after the change)\n"
+            "3. Check for consistent indentation and whitespace\n"
+            "4. Provide the exact code block from the file, including all whitespace"
+        )
+    
+    def _try_exact_match(self, file_content: str, file_lines: List[str], 
+                        search_text: str, search_lines: List[str]) -> Optional[Tuple[int, int, float]]:
+        """Strategy 1: Exact character-by-character match"""
+        if search_text in file_content:
+            start_char = file_content.index(search_text)
+            start_line, end_line = self._char_pos_to_line_range(file_content, start_char, len(search_text))
+            return start_line, end_line, 1.0
+        return None
+    
+    def _try_normalized_match(self, file_content: str, file_lines: List[str], 
+                            search_text: str, search_lines: List[str]) -> Optional[Tuple[int, int, float]]:
+        """Strategy 2: Normalized whitespace match"""
+        normalized_file = self._normalize_whitespace(file_content)
+        normalized_search = self._normalize_whitespace(search_text)
+        
+        if normalized_search in normalized_file:
+            start_char = normalized_file.index(normalized_search)
+            # Create a mapping from normalized to original positions
+            norm_to_orig = self._create_position_mapping(file_content, normalized_file)
+            if start_char in norm_to_orig:
+                orig_start = norm_to_orig[start_char]
+                orig_end = norm_to_orig.get(start_char + len(normalized_search), len(file_content))
+                start_line, end_line = self._char_pos_to_line_range(file_content, orig_start, orig_end - orig_start)
+                return start_line, end_line, 0.95  # Slightly lower score than exact match
+        return None
+    
+    def _try_relative_indent_match(self, file_content: str, file_lines: List[str], 
+                                 search_text: str, search_lines: List[str]) -> Optional[Tuple[int, int, float]]:
+        """Strategy 3: Match relative indentation patterns"""
+        if len(search_lines) < 2:  # Need multiple lines for relative indentation
+            return None
+            
+        # Calculate relative indentation for search text
+        search_indents = [len(line) - len(line.lstrip()) for line in search_lines if line.strip()]
+        if not search_indents:
+            return None
+            
+        base_indent = search_indents[0]
+        search_rel_indents = [indent - base_indent for indent in search_indents]
+        
+        # Search through the file for matching indentation patterns
+        for i in range(len(file_lines) - len(search_lines) + 1):
+            window = file_lines[i:i + len(search_lines)]
+            window_indents = [len(line) - len(line.lstrip()) for line in window if line.strip()]
+            
+            if len(window_indents) != len(search_indents):
+                continue
+                
+            window_base = window_indents[0]
+            window_rel_indents = [indent - window_base for indent in window_indents]
+            
+            if window_rel_indents == search_rel_indents:
+                # Verify content similarity
+                window_text = ''.join(window)
+                ratio = difflib.SequenceMatcher(None, search_text, window_text).ratio()
+                if ratio >= self.similarity_threshold:
+                    return i + 1, i + len(search_lines), ratio
+        
+        return None
+    
+    def _try_fuzzy_line_match(self, file_content: str, file_lines: List[str], 
+                            search_text: str, search_lines: List[str]) -> Optional[Tuple[int, int, float]]:
+        """Strategy 4: Fuzzy line-based matching"""
+        if not search_lines:
+            return None
+            
+        best_match = None
+        best_ratio = 0.0
+        search_text = ''.join(search_lines)
+        search_len = len(search_lines)
+        
+        # Try different window sizes around the expected size
+        for window in range(max(1, search_len - 2), min(search_len + 3, len(file_lines) + 1)):
+            for i in range(len(file_lines) - window + 1):
+                chunk = file_lines[i:i+window]
+                chunk_text = ''.join(chunk)
+                
+                # Calculate similarity with line-based normalization
+                ratio = self._calculate_similarity(search_text, chunk_text)
+                
+                if ratio > best_ratio:
+                    best_ratio = ratio
+                    best_match = (i + 1, i + window, ratio)  # 1-based line numbers
+        
+        return best_match if best_ratio >= self.similarity_threshold else None
+    
+    def _calculate_best_ratio(self, file_content: str, search_text: str) -> float:
+        """Calculate the best similarity ratio between search_text and any part of file_content"""
+        file_lines = file_content.splitlines(keepends=True)
+        search_lines = search_text.splitlines(keepends=True)
+        best_ratio = 0.0
+        
+        # Try different matching strategies to find the best ratio
+        for strategy in [self._try_exact_match, self._try_normalized_match, 
+                        self._try_relative_indent_match, self._try_fuzzy_line_match]:
+            try:
+                result = strategy(file_content, file_lines, search_text, search_lines)
+                if result and result[2] > best_ratio:
+                    best_ratio = result[2]
+            except Exception:
+                continue
+                
+        return best_ratio
+    
+    def _calculate_similarity(self, text1: str, text2: str) -> float:
+        """Calculate similarity between two texts with normalization"""
+        # Normalize whitespace for better matching
+        norm1 = self._normalize_whitespace(text1)
+        norm2 = self._normalize_whitespace(text2)
+        
+        # Use SequenceMatcher with different strategies
+        matcher = difflib.SequenceMatcher(None, norm1, norm2)
+        ratio = matcher.ratio()
+        
+        # If ratio is low, try with different parameters
+        if ratio < 0.5:
+            matcher = difflib.SequenceMatcher(lambda x: x in " \t\n", norm1, norm2)
+            ratio = max(ratio, matcher.ratio() * 0.9)  # Slightly penalize whitespace-only matches
+            
+        return ratio
+    
+    def _normalize_whitespace(self, text: str) -> str:
+        """Normalize whitespace for better matching"""
+        # Replace all whitespace sequences with a single space
+        text = re.sub(r'\s+', ' ', text)
+        # Remove leading/trailing space
+        return text.strip()
+    
+    def _char_pos_to_line_range(self, text: str, start_char: int, length: int) -> Tuple[int, int]:
+        """Convert character positions to line numbers (1-based)"""
+        lines = text.splitlines(keepends=True)
+        char_count = 0
+        start_line = end_line = 1
+        
+        for i, line in enumerate(lines, 1):
+            line_length = len(line)
+            if char_count <= start_char < char_count + line_length:
+                start_line = i
+            if char_count < start_char + length <= char_count + line_length:
+                end_line = i
+                break
+            char_count += line_length
+        
+        return start_line, end_line
+    
+    def _create_position_mapping(self, original: str, normalized: str) -> Dict[int, int]:
+        """Create a mapping from normalized string positions to original string positions"""
+        mapping = {}
+        orig_pos = norm_pos = 0
+        
+        while orig_pos < len(original) and norm_pos < len(normalized):
+            if original[orig_pos].isspace() and normalized[norm_pos] == ' ':
+                # Skip all whitespace in original until we hit the next non-whitespace
+                while orig_pos < len(original) and original[orig_pos].isspace():
+                    orig_pos += 1
+                norm_pos += 1
+            elif orig_pos < len(original) and norm_pos < len(normalized) and original[orig_pos] == normalized[norm_pos]:
+                mapping[norm_pos] = orig_pos
+                orig_pos += 1
+                norm_pos += 1
+            else:
+                # This should not happen if normalization is consistent
+                orig_pos += 1
+        
+        return mapping
+
 
 def clean_path(path: str) -> str:
     """
@@ -230,67 +469,27 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
             if old_content and not old_content.endswith('\n'):
                 old_content += '\n'
                 
-            # Find the content in the file
-            full_text = ''.join(lines)
-            pos = full_text.find(old_content)
-            
-            if pos == -1:
-                # Try with stripped content (ignoring whitespace differences)
-                stripped_old_content = old_content.strip()
-                found = False
+            # Find the content in the file using CodeEditor
+            try:
+                editor = CodeEditor()
+                start_line, end_line, similarity = editor.find_best_match(''.join(lines), old_content)
+                logger.info(f"Found matching content at lines {start_line}-{end_line} (similarity: {similarity:.2f})")
                 
-                # Try to find a close match by comparing stripped content
-                for i in range(len(lines)):
-                    # Try different line ranges to find the best match
-                    for j in range(i + 1, min(i + 50, len(lines) + 1)):
-                        chunk = ''.join(lines[i:j])
-                        if chunk.strip() == stripped_old_content:
-                            start_line = i + 1  # Convert to 1-based indexing
-                            end_line = j
-                            found = True
-                            logger.info(f"Found matching content at lines {start_line}-{end_line} (ignoring whitespace)")
-                            break
-                    if found:
-                        break
-                        
-                if not found:
-                    logger.warning(f"Could not find old_content in file {file_path}")
-                    
-                    # Return a helpful error message
-                    error_msg = "Could not find the content to replace in the file. "
-                    error_msg += "To fix this issue, please ensure that:\n"
-                    error_msg += "1. The old_content exactly matches the content in the file (including whitespace and indentation)\n"
-                    error_msg += "2. You provide complete code blocks with sufficient context\n"
-                    error_msg += "3. You include unique identifiers like function names or class names\n"
-                    return json.dumps({"error": error_msg})
-            else:
-                # Determine start and end line indices based on character position
-                cum_len = 0
-                start_index = end_index = None
+            except MatchNotFoundError as e:
+                logger.warning(f"Could not find old_content in file {file_path}")
                 
-                for idx, line in enumerate(lines):
-                    prev_cum_len = cum_len
-                    cum_len += len(line)
-                    
-                    if start_index is None and cum_len > pos:
-                        start_index = idx
-                        start_line = idx + 1  # Convert to 1-based indexing
-                    
-                    if start_index is not None and cum_len >= pos + len(old_content):
-                        end_index = idx
-                        end_line = idx + 1  # Convert to 1-based indexing
-                        break
+                # Return a helpful error message
+                error_msg = "Could not find the content to replace in the file.\n\n"
+                error_msg += "To fix this issue, please ensure that:\n"
+                error_msg += "1. The content to replace (old_content) is accurate and appears in the file\n"
+                error_msg += "2. The indentation and whitespace match exactly\n"
+                error_msg += "3. You include enough context (like function/class definitions) to uniquely identify the location\n"
+                error_msg += f"\nBest match similarity: {getattr(e, 'best_similarity', 0):.2f} (threshold: {getattr(editor, 'similarity_threshold', 0.8)})\n"
+                return json.dumps({"error": error_msg})
                 
-                if start_index is not None and end_index is not None:
-                    logger.info(f"Found matching content at lines {start_line}-{end_line}")
-                else:
-                    logger.warning("Could not determine line range for old_content")
-                    # If line numbers were provided, use them
-                    if start_line is not None and end_line is not None:
-                        warning_message = "Warning: Could not determine line range for old_content. Using provided line numbers instead."
-                    else:
-                        logger.error("Could not determine line range for old_content and no line numbers were provided")
-                        return json.dumps({"error": "Could not determine line range for old_content and no line numbers were provided"})
+            except Exception as e:
+                logger.error(f"Error while finding content match: {str(e)}")
+                return json.dumps({"error": f"Error while processing file: {str(e)}"})
         
         # Validate line numbers if they were provided or determined from old_content
         if start_line < 1 or start_line > len(lines) + 1:
@@ -463,7 +662,7 @@ def code_edit_tool(query: Union[str, Dict]) -> str:
                 # gofmt can check syntax even for incomplete code blocks
                 try:
                     # Use gofmt to check syntax
-                    gofmt_result = subprocess.run(['gofmt', '-e', temp_path], 
+                    gofmt_result = subprocess.run(['gofmt', '-e', '-w', temp_path], 
                                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, 
                                                 universal_newlines=True)
                     
