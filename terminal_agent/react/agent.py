@@ -469,8 +469,8 @@ class ReActAgent:
                 )
                 raise ValueError(error_msg)
 
-        except json.JSONDecodeError as e:
-            logger.debug(f"JSON decode error in ReActAgent.decide: {str(e)}")
+        except (json.JSONDecodeError, ValueError) as e:
+            logger.debug(f"Parse error in ReActAgent.decide: {str(e)}")
             self._show_processing_message(
                 "I'm refining my response format and will try again.")
             self.trace("user", f"{str(e)}. Trying again.")
@@ -605,20 +605,90 @@ class ReActAgent:
 
     def _parse_json_response(self, response: str) -> Dict[str, Any]:
         """
-        Parses the JSON response from the LLM.
+        Parses the response from the LLM, supporting both JSON and XML tag formats.
 
         Args:
             response (str): The response string from the LLM.
 
         Returns:
-            Dict[str, Any]: The parsed JSON response.
+            Dict[str, Any]: The parsed response in the standard format.
 
         Raises:
-            json.JSONDecodeError: If the response cannot be parsed as JSON.
+            ValueError: If the response cannot be parsed.
         """
-        # Clean up the response to extract JSON
+        # Clean up the response
         cleaned_response = response.strip()
-
+        
+        # First try to parse as XML tag format
+        xml_result = self._parse_xml_response(cleaned_response)
+        if xml_result:
+            return xml_result
+            
+        # If XML parsing fails, try JSON format (backward compatibility)
+        return self._parse_json_format(cleaned_response)
+    
+    def _parse_xml_response(self, response: str) -> Optional[Dict[str, Any]]:
+        """
+        Parses XML tag format responses.
+        
+        Args:
+            response (str): The response string.
+            
+        Returns:
+            Optional[Dict[str, Any]]: Parsed response or None if not XML format.
+        """
+        import re
+        
+        # Check if response contains XML tags
+        tool_pattern = r'<tool_(\w+)>\s*({.*?})\s*</tool_\1>'
+        final_answer_pattern = r'<final_answer>\s*(.*?)\s*</final_answer>'
+        
+        # Try to match tool usage
+        tool_match = re.search(tool_pattern, response, re.DOTALL)
+        if tool_match:
+            tool_name = tool_match.group(1)
+            parameters_str = tool_match.group(2)
+            
+            try:
+                parameters = json.loads(parameters_str)
+                return {
+                    "thought": parameters.get("thought", ""),
+                    "action": {
+                        "name": tool_name,
+                        "input": parameters.get("input", parameters)
+                    }
+                }
+            except json.JSONDecodeError:
+                # If parameters are not valid JSON, treat as simple input
+                return {
+                    "thought": "",
+                    "action": {
+                        "name": tool_name,
+                        "input": parameters_str.strip()
+                    }
+                }
+        
+        # Try to match final answer
+        final_answer_match = re.search(final_answer_pattern, response, re.DOTALL)
+        if final_answer_match:
+            answer = final_answer_match.group(1).strip()
+            return {
+                "thought": "I now know the final answer.",
+                "final_answer": answer
+            }
+        
+        return None
+    
+    def _parse_json_format(self, response: str) -> Dict[str, Any]:
+        """
+        Parses JSON format responses (original method logic).
+        
+        Args:
+            response (str): The response string.
+            
+        Returns:
+            Dict[str, Any]: The parsed JSON response.
+        """
         # 使用基于栈的算法提取最长的有效 JSON 对象
         stack = []
         start_indices = []
@@ -626,7 +696,7 @@ class ReActAgent:
         escape_next = False
         candidates = []
 
-        for i, char in enumerate(cleaned_response):
+        for i, char in enumerate(response):
             # Handle escape characters
             if escape_next:
                 escape_next = False
@@ -653,10 +723,7 @@ class ReActAgent:
                 stack.pop()
                 if not stack:
                     start = start_indices.pop()
-                    candidates.append(cleaned_response[start:i + 1])
-
-        # Sort by length in descending order, prioritize longer JSON objects
-        #candidates.sort(key=len, reverse=True)
+                    candidates.append(response[start:i + 1])
 
         # Try to parse each candidate JSON object
         for json_str in candidates:
@@ -665,13 +732,24 @@ class ReActAgent:
             except json.JSONDecodeError:
                 continue
 
-        # If no valid JSON object is found, raise an exception with format
-        # example
+        # If no valid JSON object is found, raise an exception
         try:
-            return json.loads(cleaned_response)
+            return json.loads(response)
         except json.JSONDecodeError as e:
             error_msg = (
-                "Invalid response format. Please provide a valid JSON response like the following:\n\n"
+                "Invalid response format. Please provide a valid response in either XML tag format:\n\n"
+                "For tool usage:\n"
+                "<tool_[tool_name]>\n"
+                "{\n"
+                '  "thought": "Your reasoning",\n'
+                '  "input": "tool input"\n'
+                "}\n"
+                "</tool_[tool_name]>\n\n"
+                "For final answer:\n"
+                "<final_answer>\n"
+                "Your answer here\n"
+                "</final_answer>\n\n"
+                "Or in JSON format:\n\n"
                 f"{self._get_json_format_example()}"
             )
             raise ValueError(error_msg) from e
