@@ -18,6 +18,7 @@ from rich.panel import Panel
 from rich import box
 
 from terminal_agent.memory.memory_database import MemoryDatabase
+from .summary_compression import SummaryCompressor, compress_messages_with_summary, compress_single_message_with_summary
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -93,7 +94,7 @@ class ContextManager:
         return self.get_token_count(messages) > self.token_threshold
 
     def compress_messages(self, messages: List[Dict], model: str = "gpt-4", max_tokens: Optional[int] = None) -> List[Dict]:
-        """Compress message list
+        """Compress message list using efficient summary-based strategy
 
         Args:
             messages: Message list to compress
@@ -105,14 +106,39 @@ class ContextManager:
         """
         # Get token count before compression
         uncompressed_token_count = self.get_token_count(messages, model)
-        logger.info(f"Starting message compression: current token count {uncompressed_token_count}")
+        logger.info(f"[CONTEXT_MANAGER] Starting summary-based compression: {len(messages)} messages, "
+                   f"current token count {uncompressed_token_count}")
 
-        # Call compression logic
-        compressed_messages = self._compress_messages(messages, model, max_tokens=max_tokens)
+        # Use summary-based compression for better performance and context preservation
+        if max_tokens is None:
+            max_tokens = self.token_threshold
+            logger.info(f"[CONTEXT_MANAGER] Using default token threshold: {max_tokens}")
+        else:
+            logger.info(f"[CONTEXT_MANAGER] Using provided max_tokens: {max_tokens}")
+
+        # Use summary compression strategy
+        logger.info(f"[CONTEXT_MANAGER] Calling summary compression with preserve_recent=5")
+        compressed_messages = compress_messages_with_summary(
+            messages=messages,
+            model=model,
+            max_tokens=max_tokens,
+            preserve_recent=5,  # Preserve last 5 messages
+            llm_client=self.llm_client
+        )
 
         # Get token count after compression
         compressed_token_count = self.get_token_count(compressed_messages, model)
-        logger.info(f"Message compression result: {uncompressed_token_count} -> {compressed_token_count} tokens")
+        compression_ratio = compressed_token_count / uncompressed_token_count if uncompressed_token_count > 0 else 1.0
+
+        logger.info(f"[CONTEXT_MANAGER] Summary compression result: {len(messages)} -> {len(compressed_messages)} messages "
+                   f"({uncompressed_token_count} -> {compressed_token_count} tokens, ratio: {compression_ratio:.2f})")
+
+        if compression_ratio < 0.8:
+            logger.info(f"[CONTEXT_MANAGER] ✅ Excellent compression: {((1 - compression_ratio) * 100):.1f}% reduction")
+        elif compression_ratio < 1.0:
+            logger.info(f"[CONTEXT_MANAGER] ⚠️ Moderate compression: {((1 - compression_ratio) * 100):.1f}% reduction")
+        else:
+            logger.warning(f"[CONTEXT_MANAGER] ❌ No compression achieved: ratio = {compression_ratio:.2f}")
 
         return compressed_messages
 
@@ -120,14 +146,14 @@ class ContextManager:
                       token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
                       max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
         """Compress messages using while loop until token count is within limit
-        
+
         Args:
             messages: Message list
             model: LLM model
             max_tokens: Maximum token count
             token_threshold: Token threshold for compression
             max_iterations: Maximum iterations for recursive compression
-            
+
         Returns:
             Compressed message list
         """
@@ -141,7 +167,7 @@ class ContextManager:
         current_threshold = token_threshold
         current_messages = messages.copy()
         current_token_count = initial_token_count
-        
+
         # 设置初始进度为10%，确保用户能看到进度条在移动
         with Progress(
             "[cyan]{task.description}",
@@ -157,7 +183,7 @@ class ContextManager:
             task = progress.add_task("[bold blue]Optimizing context", total=100, status="")
             # 立即更新进度到10%，确保用户看到进度条在移动
             progress.update(task, completed=10, status="[cyan]Starting...[/cyan]")
-            
+
             # core loop: continue trying compression as long as token count exceeds limit
             while current_token_count > max_tokens:
                 # check if threshold has reached minimum
@@ -168,7 +194,7 @@ class ContextManager:
                         "stopping compression"
                     )
                     return current_messages
-                
+
                 # important: always start from original messages to apply new threshold
                 # compress user messages
                 user_compressed = self._compress_user_messages(
@@ -176,40 +202,40 @@ class ContextManager:
                 )
                 user_token_count = self.get_token_count(user_compressed, model)
                 logger.debug(f"After user compression: {initial_token_count} -> {user_token_count}")
-                
+
                 # Update progress - ensure at least 20% progress
                 progress_percent = max(20, min(100, int((1 - (user_token_count / initial_token_count)) * 50)))
                 progress.update(task, completed=progress_percent, status="[cyan]Optimizing...[/cyan]")
-                
+
                 # compress assistant messages
                 assistant_compressed = self._compress_assistant_messages(
                     user_compressed, model, max_tokens, current_threshold
                 )
                 assistant_token_count = self.get_token_count(assistant_compressed, model)
                 logger.debug(f"After assistant compression: {user_token_count} -> {assistant_token_count}")
-                
+
                 # Update progress - ensure at least 50% progress
                 progress_percent = max(50, min(100, int((1 - (assistant_token_count / initial_token_count)) * 100)))
                 progress.update(task, completed=progress_percent, status="[magenta]Optimizing...[/magenta]")
-                
+
                 # update state
                 current_messages = assistant_compressed
                 current_token_count = assistant_token_count
-                
+
                 # Check if compression was successful
                 if current_token_count <= max_tokens:
                     progress.update(task, completed=100, status="[green]Complete[/green]")
                     # Don't show compression completion panel
                     logger.info(f"Compression successful: {current_token_count} tokens ≤ {max_tokens}")
                     return current_messages
-                
+
                 # lower threshold for next iteration
                 logger.debug(
                     f"Compression insufficient: {current_token_count} > {max_tokens}, "
                     f"lowering threshold to {current_threshold//2}"
                 )
                 current_threshold = current_threshold // 2
-        
+
         # theoretically will not reach here
         return current_messages
 
@@ -229,7 +255,7 @@ class ContextManager:
             Compressed message list
         """
 
-        
+
         if max_iterations <= 0 or token_threshold < MIN_TOKEN_THRESHOLD:
             if max_iterations <= 0:
                 logger.warning("Compress messages: reached max iterations, returning current messages")
@@ -358,65 +384,65 @@ class ContextManager:
 
         return result
 
-    def compress_react_messages(self, messages: List[Dict], model: str = "gpt-4", 
+    def compress_react_messages(self, messages: List[Dict], model: str = "gpt-4",
                           max_tokens_threshold: Optional[int] = None,
                           recent_message_count: int = 5) -> List[Dict]:
         """
         Compress message history during React execution process, replacing older messages with summaries
-        
+
         Args:
             messages: List of message history
             model: LLM model name
             max_tokens_threshold: Token threshold, uses default threshold if None
             recent_message_count: Number of recent messages to preserve
-            
+
         Returns:
             Compressed message list
         """
         # If no threshold specified, use default threshold
         if max_tokens_threshold is None:
             max_tokens_threshold = self.token_threshold
-            
+
         # Estimate current message token count
         current_tokens = self.get_token_count(messages, model)
-        
+
         # If under threshold, return original messages
         if current_tokens <= max_tokens_threshold:
             return messages
-            
+
         logger.info(f"Message history exceeds token threshold ({current_tokens} > {max_tokens_threshold}). Compressing...")
-        
+
         # Preserve system messages
         system_messages = [m for m in messages if m.get("role") == "system"]
-        
+
         # Separate user and assistant messages
         non_system_messages = [m for m in messages if m.get("role") != "system"]
-        
+
         # If too few messages, no need to compress
         if len(non_system_messages) <= recent_message_count:
             return messages
-        
+
         # Split messages: preserve recent messages, compress older ones
         older_messages, recent_messages = non_system_messages[:-recent_message_count], non_system_messages[-recent_message_count:]
-        
+
         # If no messages to compress, return original messages
         if not older_messages:
             return messages
-        
+
         # Build summary prompt
         summary_prompt = (
             "Provide a detailed but concise summary of our conversation above. "
             "Focus on information that would be helpful for continuing the conversation, "
             "including what we did, what we're doing, which files we're working on, and what we're going to do next."
         )
-        
+
         # Convert messages to be compressed into text
         messages_text = ""
         for msg in older_messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
             messages_text += f"{role.upper()}: {content}\n\n"
-        
+
         # Use LLM to generate summary
         if self.llm_client:
             try:
@@ -424,24 +450,24 @@ class ContextManager:
                 summary_response = self.llm_client.call_with_messages([
                     {"role": "user", "content": messages_text + "\n" + summary_prompt}
                 ], show_progress=False)
-                
+
                 # Create new message list with summary
                 compressed_messages = system_messages.copy()
-                
+
                 # Add summary as assistant message
                 summary_message = {
                     "role": "assistant",
                     "content": f"Previous conversation summary: {summary_response}"
                 }
                 compressed_messages.append(summary_message)
-                
+
                 # Add recent messages
                 compressed_messages.extend(recent_messages)
-                
+
                 # Calculate token count after compression
                 compressed_tokens = self.get_token_count(compressed_messages, model)
                 logger.info(f"Compressed {len(messages)} messages to {len(compressed_messages)} messages ({current_tokens} -> {compressed_tokens} tokens)")
-                
+
                 return compressed_messages
             except Exception as e:
                 logger.error(f"Failed to generate summary: {e}")
@@ -450,10 +476,10 @@ class ContextManager:
         else:
             logger.warning("No LLM client available for summary generation, returning original messages")
             return messages
-    
+
     def _compress_message(self, msg_content: Union[str, dict], message_id: Optional[str] = None,
                         max_tokens: int = 3000, chars_per_token: float = 3.0) -> Union[str, dict]:
-        """Compress single message content
+        """Compress single message content using efficient summary-based strategy
 
         Args:
             msg_content: Message content
@@ -464,11 +490,58 @@ class ContextManager:
         Returns:
             Compressed message content
         """
-        # 将token阈值转换为估计的字符长度
-        max_length = int(max_tokens * chars_per_token)
+        logger.info(f"[SINGLE_MESSAGE_COMPRESSION] Starting single message compression: "
+                   f"message_id={message_id}, max_tokens={max_tokens}")
+
         # Handle None content
         if msg_content is None:
+            logger.info("[SINGLE_MESSAGE_COMPRESSION] None content, returning empty string")
             return ""
+
+        # Convert dict content to string for processing
+        if isinstance(msg_content, dict):
+            try:
+                content_str = json.dumps(msg_content)
+                logger.info(f"[SINGLE_MESSAGE_COMPRESSION] Converted dict content to JSON string: {len(content_str)} chars")
+            except (TypeError, ValueError):
+                content_str = str(msg_content)
+                logger.info(f"[SINGLE_MESSAGE_COMPRESSION] Converted dict content to string: {len(content_str)} chars")
+        else:
+            content_str = str(msg_content)
+            logger.info(f"[SINGLE_MESSAGE_COMPRESSION] String content: {len(content_str)} chars")
+
+        # Use summary-based compression for better performance and context preservation
+        try:
+            logger.info(f"[SINGLE_MESSAGE_COMPRESSION] Calling summary compression for single message")
+            compressed_content = compress_single_message_with_summary(
+                content=content_str,
+                message_id=message_id,
+                max_tokens=max_tokens,
+                llm_client=self.llm_client
+            )
+
+            compression_ratio = len(compressed_content) / len(content_str) if content_str else 1.0
+            logger.info(f"[SINGLE_MESSAGE_COMPRESSION] Summary compression completed: "
+                       f"{len(content_str)} -> {len(compressed_content)} chars (ratio: {compression_ratio:.2f})")
+
+            # Return in original format
+            if isinstance(msg_content, dict):
+                logger.info("[SINGLE_MESSAGE_COMPRESSION] Returning compressed content in dict format")
+                return {"_compressed_content": compressed_content, "_original_format": "dict"}
+            else:
+                logger.info("[SINGLE_MESSAGE_COMPRESSION] Returning compressed content as string")
+                return compressed_content
+
+        except Exception as e:
+            logger.warning(f"[SINGLE_MESSAGE_COMPRESSION] Summary compression failed: {e}, falling back to simple truncation")
+            # Fall back to simple truncation
+            return self._simple_truncate_compression(msg_content, message_id, max_tokens, chars_per_token)
+
+    def _simple_truncate_compression(self, msg_content: Union[str, dict], message_id: Optional[str] = None,
+                                   max_tokens: int = 3000, chars_per_token: float = 3.0) -> Union[str, dict]:
+        """Simple truncation-based compression (fallback method)"""
+        # 将token阈值转换为估计的字符长度
+        max_length = int(max_tokens * chars_per_token)
 
         # Handle string content
         if isinstance(msg_content, str):
