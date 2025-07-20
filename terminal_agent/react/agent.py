@@ -152,6 +152,191 @@ class ReActAgent:
             border_style="blue",
             expand=False
         ))
+    
+    def _generate_elegant_tool_call_text(self, tool_name: ToolName, tool_input: str) -> str:
+        """
+        Generates elegant tool call text for inclusion in Thinking panel.
+        
+        Args:
+            tool_name: The tool being called
+            tool_input: The input for the tool
+            
+        Returns:
+            str: Formatted tool call text
+        """
+        # Parse tool input to extract relevant information
+        try:
+            if tool_input.startswith('{') and tool_input.endswith('}'):
+                import json
+                input_data = json.loads(tool_input)
+            else:
+                input_data = {}
+        except:
+            input_data = {}
+        
+        # Create elegant display based on tool type
+        if tool_name == ToolName.FILES:
+            operation = input_data.get("operation", "")
+            file_path = input_data.get("file_path", "")
+            
+            if operation == "read_file":
+                return f"📖 **I will read** `{file_path}`"
+            elif operation == "write_file":
+                return f"✏️ **I will write to** `{file_path}`"
+            elif operation == "list_directory":
+                return f"📁 **I will list contents of** `{file_path}`"
+            else:
+                return f"📄 **I will perform file operation on** `{file_path}`"
+                
+        elif tool_name == ToolName.SHELL:
+            command = input_data.get("command", tool_input)
+            return f"⚡ **I will execute:** `{command}`"
+            
+        elif tool_name == ToolName.WEB_SEARCH:
+            query = input_data.get("query", tool_input)
+            return f"🔍 **I will search for:** `{query}`"
+            
+        elif tool_name == ToolName.WEB_PAGE:
+            url = input_data.get("url", tool_input)
+            return f"🌐 **I will fetch:** `{url}`"
+            
+        elif tool_name == ToolName.GET_FOLDER_STRUCTURE:
+            repo_dir = input_data.get("repo_dir", "current directory")
+            return f"📂 **I will analyze structure of** `{repo_dir}`"
+            
+        elif tool_name == ToolName.CODE_EDIT:
+            file_path = input_data.get("file_path", "")
+            return f"✏️ **I will edit** `{file_path}`"
+            
+        elif tool_name == ToolName.GET_ALL_REFERENCES:
+            word = input_data.get("word", "")
+            file_path = input_data.get("relative_path", "")
+            return f"🔗 **I will find references to** `{word}` **in** `{file_path}`"
+            
+        elif tool_name == ToolName.GOTO_DEFINITION:
+            word = input_data.get("word", "")
+            file_path = input_data.get("relative_path", "")
+            return f"📍 **I will find definition of** `{word}` **in** `{file_path}`"
+            
+        elif tool_name == ToolName.ZOEKT_SEARCH:
+            names = input_data.get("names", [])
+            if isinstance(names, list) and names:
+                return f"🔍 **I will search for:** `{', '.join(names)}`"
+            else:
+                return f"🔍 **I will perform code search**"
+                
+        elif tool_name == ToolName.GET_SYMBOLS:
+            file_path = input_data.get("file_path", "")
+            return f"📋 **I will extract symbols from** `{file_path}`"
+            
+        elif tool_name == ToolName.SCRIPT:
+            action = input_data.get("action", "")
+            filename = input_data.get("filename", "")
+            if action == "create":
+                return f"📝 **I will create script** `{filename}`"
+            elif action == "execute":
+                return f"▶️ **I will execute script** `{filename}`"
+            else:
+                return f"📝 **I will work with script** `{filename}`"
+                
+        elif tool_name == ToolName.MESSAGE:
+            question = input_data.get("question", tool_input)
+            return f"❓ **I will ask:** `{question}`"
+            
+        else:
+            # Fallback for unknown tools
+            return f"⚙️ **I will use** `{tool_name}` **tool**"
+    
+    def _show_elegant_tool_call(self, tool_name: ToolName, tool_input: str) -> None:
+        """
+        Shows an elegant tool call display similar to Cursor's experience.
+        
+        Args:
+            tool_name: The tool being called
+            tool_input: The input for the tool
+        """
+        # Parse tool input to extract relevant information
+        try:
+            if tool_input.startswith('{') and tool_input.endswith('}'):
+                import json
+                input_data = json.loads(tool_input)
+            else:
+                input_data = {}
+        except:
+            input_data = {}
+        
+        # Create elegant display based on tool type
+        if tool_name == ToolName.FILES:
+            operation = input_data.get("operation", "")
+            file_path = input_data.get("file_path", "")
+            
+            if operation == "read_file":
+                console.print(f"📖 I will read [bold cyan]{file_path}[/bold cyan]")
+            elif operation == "write_file":
+                console.print(f"✏️ I will write to [bold cyan]{file_path}[/bold cyan]")
+            elif operation == "list_directory":
+                console.print(f"📁 I will list contents of [bold cyan]{file_path}[/bold cyan]")
+            else:
+                console.print(f"📄 I will perform file operation on [bold cyan]{file_path}[/bold cyan]")
+                
+        elif tool_name == ToolName.SHELL:
+            command = input_data.get("command", tool_input)
+            console.print(f"⚡ I will execute: [bold green]{command}[/bold green]")
+            
+        elif tool_name == ToolName.WEB_SEARCH:
+            query = input_data.get("query", tool_input)
+            console.print(f"🔍 I will search for: [bold yellow]{query}[/bold yellow]")
+            
+        elif tool_name == ToolName.WEB_PAGE:
+            url = input_data.get("url", tool_input)
+            console.print(f"🌐 I will fetch: [bold blue]{url}[/bold blue]")
+            
+        elif tool_name == ToolName.GET_FOLDER_STRUCTURE:
+            repo_dir = input_data.get("repo_dir", "current directory")
+            console.print(f"📂 I will analyze structure of [bold magenta]{repo_dir}[/bold magenta]")
+            
+        elif tool_name == ToolName.CODE_EDIT:
+            file_path = input_data.get("file_path", "")
+            console.print(f"✏️ I will edit [bold cyan]{file_path}[/bold cyan]")
+            
+        elif tool_name == ToolName.GET_ALL_REFERENCES:
+            word = input_data.get("word", "")
+            file_path = input_data.get("relative_path", "")
+            console.print(f"🔗 I will find references to [bold yellow]{word}[/bold yellow] in [bold cyan]{file_path}[/bold cyan]")
+            
+        elif tool_name == ToolName.GOTO_DEFINITION:
+            word = input_data.get("word", "")
+            file_path = input_data.get("relative_path", "")
+            console.print(f"📍 I will find definition of [bold yellow]{word}[/bold yellow] in [bold cyan]{file_path}[/bold cyan]")
+            
+        elif tool_name == ToolName.ZOEKT_SEARCH:
+            names = input_data.get("names", [])
+            if isinstance(names, list) and names:
+                console.print(f"🔍 I will search for [bold yellow]{', '.join(names)}[/bold yellow]")
+            else:
+                console.print(f"🔍 I will perform code search")
+                
+        elif tool_name == ToolName.GET_SYMBOLS:
+            file_path = input_data.get("file_path", "")
+            console.print(f"📋 I will extract symbols from [bold cyan]{file_path}[/bold cyan]")
+            
+        elif tool_name == ToolName.SCRIPT:
+            action = input_data.get("action", "")
+            filename = input_data.get("filename", "")
+            if action == "create":
+                console.print(f"📝 I will create script [bold cyan]{filename}[/bold cyan]")
+            elif action == "execute":
+                console.print(f"▶️ I will execute script [bold cyan]{filename}[/bold cyan]")
+            else:
+                console.print(f"📝 I will work with script [bold cyan]{filename}[/bold cyan]")
+                
+        elif tool_name == ToolName.MESSAGE:
+            question = input_data.get("question", tool_input)
+            console.print(f"❓ I will ask: [bold yellow]{question}[/bold yellow]")
+            
+        else:
+            # Fallback for unknown tools
+            console.print(f"⚙️ I will use {tool_name} tool")
 
     def __init__(self,
                  llm_client: LLMClient,
@@ -381,15 +566,57 @@ class ReActAgent:
             # Try to parse the response as JSON
             parsed_response = self._parse_json_response(response)
 
-            # 显示思考过程，实现信息透明
+            # 整合思考过程和工具调用到 Thinking 框中
             if "thought" in parsed_response and "final_answer" not in parsed_response:
                 thought = parsed_response["thought"]
+                
+                # 构建完整的思考内容，包括工具调用信息
+                formatted_content = thought
+                
+                # 如果有工具调用，添加到思考内容中
+                if "action" in parsed_response:
+                    action = parsed_response["action"]
+                    tool_name_str = action["name"].upper()
 
-                # 直接使用原始思考内容，不进行额外处理
-                formatted_thought = thought
+                    # Handle the case when the tool name might be lowercase
+                    try:
+                        tool_name = ToolName[tool_name_str]
+                    except KeyError:
+                        # Try with capitalized name
+                        tool_name_str = action["name"].capitalize()
+                        try:
+                            tool_name = ToolName[tool_name_str]
+                        except KeyError:
+                            logger.error(f"Unknown tool name: {action['name']}")
+                            self.trace(
+                                "user", f"Error: Unknown tool name '{
+                                    action['name']}'")
+                            self.think()
+                            return
+
+                    # Check if the tool is NONE
+                    if tool_name == ToolName.NONE:
+                        logger.debug(
+                            "No action needed. Proceeding to final answer.")
+                        self.think()
+                        return
+                    else:
+                        # Get the tool input
+                        tool_input = action.get("input", self.query)
+
+                        # Ensure the input is serialized to a JSON string if it's a
+                        # dict
+                        if isinstance(tool_input, dict):
+                            tool_input = json.dumps(tool_input)
+
+                        # 生成优雅的工具调用文本
+                        tool_call_text = self._generate_elegant_tool_call_text(tool_name, tool_input)
+                        
+                        # 将工具调用信息添加到思考内容中
+                        formatted_content += f"\n\n{tool_call_text}"
 
                 # 创建 Markdown 对象
-                md = Markdown(formatted_thought)
+                md = Markdown(formatted_content)
 
                 # 创建面板
                 panel = Panel(
@@ -401,43 +628,44 @@ class ReActAgent:
 
                 # 显示面板
                 console.print(panel)
+                
+                # 如果有工具调用，执行工具
+                if "action" in parsed_response:
+                    action = parsed_response["action"]
+                    tool_name_str = action["name"].upper()
 
-            if "action" in parsed_response:
-                action = parsed_response["action"]
-                tool_name_str = action["name"].upper()
-
-                # Handle the case when the tool name might be lowercase
-                try:
-                    tool_name = ToolName[tool_name_str]
-                except KeyError:
-                    # Try with capitalized name
-                    tool_name_str = action["name"].capitalize()
+                    # Handle the case when the tool name might be lowercase
                     try:
                         tool_name = ToolName[tool_name_str]
                     except KeyError:
-                        logger.error(f"Unknown tool name: {action['name']}")
-                        self.trace(
-                            "user", f"Error: Unknown tool name '{
-                                action['name']}'")
+                        # Try with capitalized name
+                        tool_name_str = action["name"].capitalize()
+                        try:
+                            tool_name = ToolName[tool_name_str]
+                        except KeyError:
+                            logger.error(f"Unknown tool name: {action['name']}")
+                            self.trace(
+                                "user", f"Error: Unknown tool name '{
+                                    action['name']}'")
+                            self.think()
+                            return
+
+                    # Check if the tool is NONE
+                    if tool_name == ToolName.NONE:
+                        logger.debug(
+                            "No action needed. Proceeding to final answer.")
                         self.think()
-                        return
+                    else:
+                        # Get the tool input
+                        tool_input = action.get("input", self.query)
 
-                # Check if the tool is NONE
-                if tool_name == ToolName.NONE:
-                    logger.debug(
-                        "No action needed. Proceeding to final answer.")
-                    self.think()
-                else:
-                    # Get the tool input
-                    tool_input = action.get("input", self.query)
+                        # Ensure the input is serialized to a JSON string if it's a
+                        # dict
+                        if isinstance(tool_input, dict):
+                            tool_input = json.dumps(tool_input)
 
-                    # Ensure the input is serialized to a JSON string if it's a
-                    # dict
-                    if isinstance(tool_input, dict):
-                        tool_input = json.dumps(tool_input)
-
-                    # Execute the action without displaying intermediate steps
-                    self.act(tool_name, tool_input)
+                                                # Execute the action without displaying intermediate steps
+                        self.act(tool_name, tool_input)
 
             elif "final_answer" in parsed_response:
                 # Format and display the final answer with rich formatting
