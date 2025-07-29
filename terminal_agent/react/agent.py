@@ -152,15 +152,15 @@ class ReActAgent:
             border_style="blue",
             expand=False
         ))
-    
+
     def _generate_elegant_tool_call_text(self, tool_name: ToolName, tool_input: str) -> str:
         """
         Generates elegant tool call text for inclusion in Thinking panel.
-        
+
         Args:
             tool_name: The tool being called
             tool_input: The input for the tool
-            
+
         Returns:
             str: Formatted tool call text
         """
@@ -173,170 +173,98 @@ class ReActAgent:
                 input_data = {}
         except:
             input_data = {}
-        
+
         # Create elegant display based on tool type
         if tool_name == ToolName.FILES:
             operation = input_data.get("operation", "")
             file_path = input_data.get("file_path", "")
-            
+            directory_path = input_data.get("directory_path", "")
+
             if operation == "read_file":
-                return f"📖 **I will read** `{file_path}`"
+                return f"📖 **read** `{file_path}`"
             elif operation == "write_file":
-                return f"✏️ **I will write to** `{file_path}`"
+                return f"✏️ **write to** `{file_path}`"
             elif operation == "list_directory":
-                return f"📁 **I will list contents of** `{file_path}`"
+                if directory_path == ".":
+                    import os
+                    display_path = os.getcwd()
+                elif directory_path == "..":
+                    import os
+                    display_path = os.path.dirname(os.getcwd())
+                else:
+                    display_path = directory_path
+                return f"📁 **list contents of** `{display_path}`"
             else:
-                return f"📄 **I will perform file operation on** `{file_path}`"
-                
+                return f"📄 **perform file operation on** `{file_path}`"
+
         elif tool_name == ToolName.SHELL:
             command = input_data.get("command", tool_input)
-            return f"⚡ **I will execute:** `{command}`"
-            
+            return f"⚡ **execute:** `{command}`"
+
         elif tool_name == ToolName.WEB_SEARCH:
             query = input_data.get("query", tool_input)
-            return f"🔍 **I will search for:** `{query}`"
-            
+            return f"🔍 **search for:** `{query}`"
+
         elif tool_name == ToolName.WEB_PAGE:
             url = input_data.get("url", tool_input)
-            return f"🌐 **I will fetch:** `{url}`"
-            
+            return f"🌐 **fetch:** `{url}`"
+
         elif tool_name == ToolName.GET_FOLDER_STRUCTURE:
             repo_dir = input_data.get("repo_dir", "current directory")
-            return f"📂 **I will analyze structure of** `{repo_dir}`"
-            
+            # Convert relative paths to absolute paths for display
+            if repo_dir == ".":
+                import os
+                display_path = os.getcwd()
+            elif repo_dir == "..":
+                import os
+                display_path = os.path.dirname(os.getcwd())
+            else:
+                display_path = repo_dir
+            return f"📂 **analyze structure of** `{display_path}`"
+
         elif tool_name == ToolName.CODE_EDIT:
             file_path = input_data.get("file_path", "")
-            return f"✏️ **I will edit** `{file_path}`"
-            
+            return f"✏️ **edit** `{file_path}`"
+
         elif tool_name == ToolName.GET_ALL_REFERENCES:
             word = input_data.get("word", "")
             file_path = input_data.get("relative_path", "")
-            return f"🔗 **I will find references to** `{word}` **in** `{file_path}`"
-            
+            return f"🔗 **find references to** `{word}` **in** `{file_path}`"
+
         elif tool_name == ToolName.GOTO_DEFINITION:
             word = input_data.get("word", "")
             file_path = input_data.get("relative_path", "")
-            return f"📍 **I will find definition of** `{word}` **in** `{file_path}`"
-            
+            return f"📍 **find definition of** `{word}` **in** `{file_path}`"
+
         elif tool_name == ToolName.ZOEKT_SEARCH:
             names = input_data.get("names", [])
             if isinstance(names, list) and names:
-                return f"🔍 **I will search for:** `{', '.join(names)}`"
+                return f"🔍 **search for:** `{', '.join(names)}`"
             else:
-                return f"🔍 **I will perform code search**"
-                
+                return f"🔍 **perform code search**"
+
         elif tool_name == ToolName.GET_SYMBOLS:
             file_path = input_data.get("file_path", "")
-            return f"📋 **I will extract symbols from** `{file_path}`"
-            
+            return f"📋 **extract symbols from** `{file_path}`"
+
         elif tool_name == ToolName.SCRIPT:
             action = input_data.get("action", "")
             filename = input_data.get("filename", "")
             if action == "create":
-                return f"📝 **I will create script** `{filename}`"
+                return f"📝 **create script** `{filename}`"
             elif action == "execute":
-                return f"▶️ **I will execute script** `{filename}`"
+                return f"▶️ **execute script** `{filename}`"
             else:
-                return f"📝 **I will work with script** `{filename}`"
-                
+                return f"📝 **work with script** `{filename}`"
+
         elif tool_name == ToolName.MESSAGE:
             question = input_data.get("question", tool_input)
-            return f"❓ **I will ask:** `{question}`"
-            
+            return f"❓ **ask:** `{question}`"
+
         else:
             # Fallback for unknown tools
-            return f"⚙️ **I will use** `{tool_name}` **tool**"
-    
-    def _show_elegant_tool_call(self, tool_name: ToolName, tool_input: str) -> None:
-        """
-        Shows an elegant tool call display similar to Cursor's experience.
-        
-        Args:
-            tool_name: The tool being called
-            tool_input: The input for the tool
-        """
-        # Parse tool input to extract relevant information
-        try:
-            if tool_input.startswith('{') and tool_input.endswith('}'):
-                import json
-                input_data = json.loads(tool_input)
-            else:
-                input_data = {}
-        except:
-            input_data = {}
-        
-        # Create elegant display based on tool type
-        if tool_name == ToolName.FILES:
-            operation = input_data.get("operation", "")
-            file_path = input_data.get("file_path", "")
-            
-            if operation == "read_file":
-                console.print(f"📖 I will read [bold cyan]{file_path}[/bold cyan]")
-            elif operation == "write_file":
-                console.print(f"✏️ I will write to [bold cyan]{file_path}[/bold cyan]")
-            elif operation == "list_directory":
-                console.print(f"📁 I will list contents of [bold cyan]{file_path}[/bold cyan]")
-            else:
-                console.print(f"📄 I will perform file operation on [bold cyan]{file_path}[/bold cyan]")
-                
-        elif tool_name == ToolName.SHELL:
-            command = input_data.get("command", tool_input)
-            console.print(f"⚡ I will execute: [bold green]{command}[/bold green]")
-            
-        elif tool_name == ToolName.WEB_SEARCH:
-            query = input_data.get("query", tool_input)
-            console.print(f"🔍 I will search for: [bold yellow]{query}[/bold yellow]")
-            
-        elif tool_name == ToolName.WEB_PAGE:
-            url = input_data.get("url", tool_input)
-            console.print(f"🌐 I will fetch: [bold blue]{url}[/bold blue]")
-            
-        elif tool_name == ToolName.GET_FOLDER_STRUCTURE:
-            repo_dir = input_data.get("repo_dir", "current directory")
-            console.print(f"📂 I will analyze structure of [bold magenta]{repo_dir}[/bold magenta]")
-            
-        elif tool_name == ToolName.CODE_EDIT:
-            file_path = input_data.get("file_path", "")
-            console.print(f"✏️ I will edit [bold cyan]{file_path}[/bold cyan]")
-            
-        elif tool_name == ToolName.GET_ALL_REFERENCES:
-            word = input_data.get("word", "")
-            file_path = input_data.get("relative_path", "")
-            console.print(f"🔗 I will find references to [bold yellow]{word}[/bold yellow] in [bold cyan]{file_path}[/bold cyan]")
-            
-        elif tool_name == ToolName.GOTO_DEFINITION:
-            word = input_data.get("word", "")
-            file_path = input_data.get("relative_path", "")
-            console.print(f"📍 I will find definition of [bold yellow]{word}[/bold yellow] in [bold cyan]{file_path}[/bold cyan]")
-            
-        elif tool_name == ToolName.ZOEKT_SEARCH:
-            names = input_data.get("names", [])
-            if isinstance(names, list) and names:
-                console.print(f"🔍 I will search for [bold yellow]{', '.join(names)}[/bold yellow]")
-            else:
-                console.print(f"🔍 I will perform code search")
-                
-        elif tool_name == ToolName.GET_SYMBOLS:
-            file_path = input_data.get("file_path", "")
-            console.print(f"📋 I will extract symbols from [bold cyan]{file_path}[/bold cyan]")
-            
-        elif tool_name == ToolName.SCRIPT:
-            action = input_data.get("action", "")
-            filename = input_data.get("filename", "")
-            if action == "create":
-                console.print(f"📝 I will create script [bold cyan]{filename}[/bold cyan]")
-            elif action == "execute":
-                console.print(f"▶️ I will execute script [bold cyan]{filename}[/bold cyan]")
-            else:
-                console.print(f"📝 I will work with script [bold cyan]{filename}[/bold cyan]")
-                
-        elif tool_name == ToolName.MESSAGE:
-            question = input_data.get("question", tool_input)
-            console.print(f"❓ I will ask: [bold yellow]{question}[/bold yellow]")
-            
-        else:
-            # Fallback for unknown tools
-            console.print(f"⚙️ I will use {tool_name} tool")
+            return f"⚙️ **use** `{tool_name}` **tool**"
+
 
     def __init__(self,
                  llm_client: LLMClient,
@@ -479,16 +407,11 @@ class ReActAgent:
         # Check if we've reached the maximum number of iterations
         if self.current_iteration > self.max_iterations:
             logger.warning("Reached maximum iterations. Stopping.")
-            self.trace(
-                "assistant",
-                "I'm sorry, but I couldn't find a satisfactory answer within the allowed number of iterations. Here's what I know so far: " +
-                self.get_history())
             return
 
         # Check if operations should be stopped
         if should_stop_operations():
             logger.warning("Operations stopped by user.")
-            self.trace("user", "Operations stopped by user.")
             return
 
         try:
@@ -531,7 +454,7 @@ class ReActAgent:
             logger.debug(f"Thinking => {response}")
 
             # 记录思考过程但不显示，显示逻辑移到 decide 方法中
-            self.trace("assistant", f"Thought: {response}", display=False)
+            
 
             # Decide on the next action based on the response
             self.decide(response)
@@ -569,10 +492,11 @@ class ReActAgent:
             # 整合思考过程和工具调用到 Thinking 框中
             if "thought" in parsed_response and "final_answer" not in parsed_response:
                 thought = parsed_response["thought"]
-                
+
                 # 构建完整的思考内容，包括工具调用信息
                 formatted_content = thought
-                
+                self.trace("assistant", f"Thought: {formatted_content}", display=False)
+
                 # 如果有工具调用，添加到思考内容中
                 if "action" in parsed_response:
                     action = parsed_response["action"]
@@ -611,7 +535,7 @@ class ReActAgent:
 
                         # 生成优雅的工具调用文本
                         tool_call_text = self._generate_elegant_tool_call_text(tool_name, tool_input)
-                        
+
                         # 将工具调用信息添加到思考内容中
                         formatted_content += f"\n\n{tool_call_text}"
 
@@ -628,7 +552,7 @@ class ReActAgent:
 
                 # 显示面板
                 console.print(panel)
-                
+
                 # 如果有工具调用，执行工具
                 if "action" in parsed_response:
                     action = parsed_response["action"]
@@ -782,7 +706,7 @@ class ReActAgent:
                     tool_name}: {truncated_result}"
                 # 记录观察结果但不显示完整详情
                 logger.debug(observation)
-                self.trace("user", observation, display=False)
+                self.trace("assistant", observation, display=False)
 
             # Continue thinking
             self.think()
@@ -846,37 +770,37 @@ class ReActAgent:
         """
         # Clean up the response
         cleaned_response = response.strip()
-        
+
         # First try to parse as XML tag format
         xml_result = self._parse_xml_response(cleaned_response)
         if xml_result:
             return xml_result
-            
+
         # If XML parsing fails, try JSON format (backward compatibility)
         return self._parse_json_format(cleaned_response)
-    
+
     def _parse_xml_response(self, response: str) -> Optional[Dict[str, Any]]:
         """
         Parses XML tag format responses.
-        
+
         Args:
             response (str): The response string.
-            
+
         Returns:
             Optional[Dict[str, Any]]: Parsed response or None if not XML format.
         """
         import re
-        
+
         # Check if response contains XML tags
         tool_pattern = r'<tool_(\w+)>\s*({.*?})\s*</tool_\1>'
         final_answer_pattern = r'<final_answer>\s*(.*?)\s*</final_answer>'
-        
+
         # Try to match tool usage
         tool_match = re.search(tool_pattern, response, re.DOTALL)
         if tool_match:
             tool_name = tool_match.group(1)
             parameters_str = tool_match.group(2)
-            
+
             try:
                 parameters = json.loads(parameters_str)
                 return {
@@ -895,7 +819,7 @@ class ReActAgent:
                         "input": parameters_str.strip()
                     }
                 }
-        
+
         # Try to match final answer
         final_answer_match = re.search(final_answer_pattern, response, re.DOTALL)
         if final_answer_match:
@@ -904,16 +828,16 @@ class ReActAgent:
                 "thought": "I now know the final answer.",
                 "final_answer": answer
             }
-        
+
         return None
-    
+
     def _parse_json_format(self, response: str) -> Dict[str, Any]:
         """
         Parses JSON format responses (original method logic).
-        
+
         Args:
             response (str): The response string.
-            
+
         Returns:
             Dict[str, Any]: The parsed JSON response.
         """
