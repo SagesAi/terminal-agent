@@ -5,6 +5,7 @@ This module implements the Anthropic Claude provider for the LLM client.
 """
 
 import os
+import json
 from typing import List, Dict, Any, Optional, Union
 import logging
 from rich.console import Console
@@ -213,3 +214,101 @@ class AnthropicProvider(BaseLLMProvider):
             max_tokens=max_tokens,
             **kwargs
         )
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call the Claude API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Convert messages to Claude format
+            claude_messages, system_content = self._convert_to_claude_messages(messages)
+            
+            # Convert OpenAI tools format to Claude tools format
+            claude_tools = []
+            for tool in tools:
+                if "function" in tool:
+                    func = tool["function"]
+                    claude_tool = {
+                        "name": func["name"],
+                        "description": func.get("description", ""),
+                        "input_schema": func.get("parameters", {})
+                    }
+                    claude_tools.append(claude_tool)
+            
+            # Create message parameters
+            params = {
+                "model": self.model,
+                "messages": claude_messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens
+            }
+            
+            # Add tools if provided
+            if claude_tools:
+                params["tools"] = claude_tools
+                # Force tool use if we have tools
+                params["tool_choice"] = {"type": "auto"}
+            
+            # Add system content if present
+            if system_content:
+                params["system"] = system_content
+            
+            # Add any additional parameters
+            params.update(kwargs)
+            
+            # Call the API
+            response = self.client.messages.create(**params)
+            
+            # Create a response object compatible with OpenAI format
+            result = {
+                "role": "assistant",
+                "content": response.content[0].text if response.content else ""
+            }
+            
+            # Handle tool calls
+            if hasattr(response, 'content') and response.content:
+                tool_calls = []
+                for content_block in response.content:
+                    if hasattr(content_block, 'type') and content_block.type == 'tool_use':
+                        tool_calls.append({
+                            "id": content_block.id,
+                            "type": "function",
+                            "function": {
+                                "name": content_block.name,
+                                "arguments": json.dumps(content_block.input) if hasattr(content_block, 'input') else "{}"
+                            }
+                        })
+                
+                if tool_calls:
+                    result["tool_calls"] = tool_calls
+            
+            return result
+            
+        except Exception as e:
+            # Check if it's a connection error
+            if "connect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Connection error with Anthropic API: {str(e)}")
+                raise ConnectionError(f"Unable to connect to Anthropic API: {str(e)}")
+            
+            # Re-raise other exceptions
+            logger.error(f"Error calling Anthropic API with tools: {str(e)}")
+            raise
