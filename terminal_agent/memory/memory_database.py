@@ -75,6 +75,7 @@ class MemoryDatabase:
             input TEXT NOT NULL,
             output TEXT,
             created_at TEXT NOT NULL,
+            tool_call_id TEXT,
             FOREIGN KEY (message_id) REFERENCES messages(id)
         )
         ''')

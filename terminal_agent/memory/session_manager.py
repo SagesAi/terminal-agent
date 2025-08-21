@@ -87,7 +87,7 @@ class SessionManager:
             # Create a temporary session ID on error
             return f"temp_{str(uuid.uuid4())}"
     
-    def add_message(self, session_id: str, role: str, content: Any, message_type: str = "message") -> str:
+    def add_message(self, session_id: str, role: str, content: Any, message_type: str = "message", metadata: Dict[str, Any] = None) -> str:
         """Add message to session
         
         Args:
@@ -95,6 +95,7 @@ class SessionManager:
             role: Message role (user, assistant, system)
             content: Message content
             message_type: Message type (message, thinking, summary, etc.)
+            metadata: Additional metadata for the message
             
         Returns:
             Message ID
@@ -108,10 +109,15 @@ class SessionManager:
             if not isinstance(content, str):
                 content = json.dumps(content)
                 
+            # Convert metadata to JSON string if provided
+            metadata_json = None
+            if metadata:
+                metadata_json = json.dumps(metadata)
+                
             conn.execute('''
-            INSERT INTO messages (id, session_id, role, content, type, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (message_id, session_id, role, content, message_type, now))
+            INSERT INTO messages (id, session_id, role, content, type, created_at, metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (message_id, session_id, role, content, message_type, now, metadata_json))
             
             # Update session's last activity time
             conn.execute('''
@@ -126,7 +132,7 @@ class SessionManager:
             logger.error(f"Error adding message: {e}")
             return ""
     
-    def add_tool_call(self, message_id: str, tool_name: str, input_data: Any, output_data: Any = None) -> str:
+    def add_tool_call(self, message_id: str, tool_name: str, input_data: Any, output_data: Any = None, tool_call_id: str = None) -> str:
         """Add tool call record
         
         Args:
@@ -134,6 +140,7 @@ class SessionManager:
             tool_name: Tool name
             input_data: Input data
             output_data: Output data
+            tool_call_id: OpenAI tool call ID for linking results
             
         Returns:
             Tool call ID
@@ -151,9 +158,9 @@ class SessionManager:
                 output_data = json.dumps(output_data)
                 
             conn.execute('''
-            INSERT INTO tool_calls (id, message_id, tool_name, input, output, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ''', (tool_call_id, message_id, tool_name, input_data, output_data, now))
+            INSERT INTO tool_calls (id, message_id, tool_name, input, output, created_at, tool_call_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (tool_call_id, message_id, tool_name, input_data, output_data, now, tool_call_id))
             
             conn.commit()
             logger.debug(f"Added tool call record: tool={tool_name}, messageID={message_id}")
@@ -211,17 +218,34 @@ class SessionManager:
             # Convert to format required by LLM
             llm_messages = []
             for msg in messages:
-                # Handle potentially compressed content
-                if isinstance(msg["content"], dict) and msg["content"].get("_truncated_content"):
-                    # For truncated content, use the message or a default message
-                    content = msg["content"].get("_message", "[Content was truncated due to length]")
+                # Handle tool messages with OpenAI format
+                if msg["role"] == "tool" and msg.get("metadata") and msg["metadata"].get("tool_call_id"):
+                    # Reconstruct tool result in OpenAI format
+                    llm_message = {
+                        "role": "tool",
+                        "tool_call_id": msg["metadata"]["tool_call_id"],
+                        "content": str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
+                    }
+                elif msg["role"] == "assistant" and msg.get("metadata") and msg["metadata"].get("tool_calls"):
+                    # Reconstruct assistant message with tool calls
+                    llm_message = {
+                        "role": "assistant",
+                        "content": str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"],
+                        "tool_calls": msg["metadata"]["tool_calls"]
+                    }
                 else:
-                    content = str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
+                    # Handle regular messages
+                    if isinstance(msg["content"], dict) and msg["content"].get("_truncated_content"):
+                        # For truncated content, use the message or a default message
+                        content = msg["content"].get("_message", "[Content was truncated due to length]")
+                    else:
+                        content = str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
+                    
+                    llm_message = {
+                        "role": msg["role"],
+                        "content": content
+                    }
                 
-                llm_message = {
-                    "role": msg["role"],
-                    "content": content
-                }
                 llm_messages.append(llm_message)
                 
             token_count = self.context_manager.get_token_count(llm_messages, model)

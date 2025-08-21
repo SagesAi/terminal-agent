@@ -11,6 +11,10 @@ from datetime import datetime
 import uuid
 import logging
 import sys
+import warnings
+
+# Suppress pkg_resources deprecation warning from litellm
+warnings.filterwarnings('ignore', category=UserWarning, message='.*pkg_resources is deprecated.*')
 
 from rich.console import Console
 from rich.progress import Progress, SpinnerColumn, TextColumn, BarColumn, TimeElapsedColumn, TaskProgressColumn
@@ -66,7 +70,18 @@ class ContextManager:
             if model:
                 try:
                     import litellm
-                    return litellm.token_counter(model=model, messages=messages)
+                    # Preprocess messages to ensure all content is properly stringified
+                    processed_messages = []
+                    for msg in messages:
+                        processed_msg = msg.copy()
+                        content = msg.get("content", "")
+                        if isinstance(content, dict):
+                            processed_msg["content"] = json.dumps(content)
+                        elif not isinstance(content, str):
+                            processed_msg["content"] = str(content)
+                        processed_messages.append(processed_msg)
+                    
+                    return litellm.token_counter(model=model, messages=processed_messages)
                 except (ImportError, Exception) as e:
                     logger.warning(f"Cannot use litellm for token counting: {e}, falling back to heuristic method")
         except Exception as e:
@@ -78,7 +93,9 @@ class ContextManager:
             content = msg.get("content", "")
             if isinstance(content, dict):
                 content = json.dumps(content)
-            total_tokens += len(str(content).split()) * 0.3
+            elif not isinstance(content, str):
+                content = str(content)
+            total_tokens += len(content.split()) * 0.3
         return int(total_tokens)
 
     def should_summarize(self, messages: List[Dict]) -> bool:
@@ -629,7 +646,7 @@ Above is a summary of the conversation history. The conversation continues below
             logger.error(f"Error getting full message: {e}")
             return None
 
-    def get_messages_for_context(self, session_id: str, model: str = "gpt-4", max_messages: int = 32) -> List[Dict]:
+    def get_messages_for_context(self, session_id: str, model: str = "gpt-4", max_messages: int = 50) -> List[Dict]:
         """Get messages for current context
 
         Following Suna project's implementation, get the latest summary and all messages after it,
@@ -666,7 +683,7 @@ Above is a summary of the conversation history. The conversation continues below
                 # Get the summary and the most recent messages after it
                 cursor = conn.execute('''
                 WITH recent_messages AS (
-                    SELECT id, role, content, type, created_at
+                    SELECT id, role, content, type, created_at, metadata
                     FROM messages
                     WHERE session_id = ? AND is_llm_message = 1
                     AND (id = ? OR created_at > ?)
@@ -681,7 +698,7 @@ Above is a summary of the conversation history. The conversation continues below
                 logger.debug(f"No summary found, getting most recent {max_messages} messages for session {session_id}")
                 cursor = conn.execute('''
                 WITH recent_messages AS (
-                    SELECT id, role, content, type, created_at FROM messages
+                    SELECT id, role, content, type, created_at, metadata FROM messages
                     WHERE session_id = ? AND is_llm_message = 1
                     ORDER BY created_at DESC
                     LIMIT ?
@@ -693,18 +710,28 @@ Above is a summary of the conversation history. The conversation continues below
             # Process query results (already in chronological order)
             for row in cursor:
                 content = row['content']
+                metadata = row['metadata']
+                
                 # Try to parse JSON content
                 try:
                     content = json.loads(content)
                 except (json.JSONDecodeError, TypeError):
                     pass
-
+                    
+                # Try to parse JSON metadata
+                if metadata:
+                    try:
+                        metadata = json.loads(metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                
                 message = {
                     "id": row['id'],
                     "role": row['role'],
                     "content": content,
                     "type": row['type'],
-                    "created_at": row['created_at']
+                    "created_at": row['created_at'],
+                    "metadata": metadata
                 }
 
                 messages.append(message)
