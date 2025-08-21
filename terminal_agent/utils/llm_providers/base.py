@@ -76,6 +76,49 @@ class BaseLLMProvider(ABC):
         pass
     
     @abstractmethod
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call the LLM API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        pass
+        """
+        Call the LLM API with a list of messages.
+        
+        Args:
+            messages: List of message dictionaries with 'role' and 'content' keys
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            str: The model's response text
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        pass
+    
+    @abstractmethod
     def call_with_prompt(self, 
                         prompt: str, 
                         temperature: float = 0.2,
