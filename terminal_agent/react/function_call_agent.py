@@ -1,0 +1,650 @@
+#!/usr/bin/env python3
+"""
+Function Call ReAct Agent implementation
+
+This module implements a ReAct agent using OpenAI's function calling feature
+instead of manual JSON parsing.
+"""
+
+import json
+import logging
+import os
+import time
+from typing import Dict, List, Any, Optional, Tuple
+from datetime import datetime
+from rich.console import Console
+from rich.markdown import Markdown
+from rich.panel import Panel
+from rich.syntax import Syntax
+from pydantic import BaseModel, Field
+
+from terminal_agent.utils.llm_client import LLMClient
+from terminal_agent.utils.command_analyzer import CommandAnalyzer
+from terminal_agent.utils.command_forwarder import forwarder
+from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
+from terminal_agent.utils.logging_config import get_logger
+from terminal_agent.react.function_call_tools import tool_registry, FunctionCall
+
+# Initialize Rich console
+console = Console()
+
+# Get logger
+logger = get_logger(__name__)
+
+# Default template path
+PROMPT_TEMPLATE_PATH = os.path.join(
+    os.path.dirname(__file__),
+    "templates",
+    "function_call_prompt.txt")
+DEFAULT_MAX_ITERATIONS = 15
+
+
+class FunctionCallAgent:
+    """
+    ReAct agent implementation using OpenAI function calling
+    """
+    
+    def __init__(self,
+                 llm_client: LLMClient,
+                 system_info: Dict[str, Any],
+                 command_analyzer: Optional[CommandAnalyzer] = None,
+                 max_iterations: int = DEFAULT_MAX_ITERATIONS,
+                 template_path: str = PROMPT_TEMPLATE_PATH,
+                 memory_enabled: bool = False,
+                 memory_db: Optional[Any] = None,
+                 user_id: str = "default_user"):
+        """
+        Initialize the Function Call ReAct Agent
+        
+        Args:
+            llm_client: LLM client for API interactions
+            system_info: Dictionary containing system information
+            command_analyzer: Analyzer for command safety
+            max_iterations: Maximum number of reasoning iterations
+            template_path: Path to the prompt template file
+            memory_enabled: Whether to enable memory system
+            memory_db: Memory database instance
+            user_id: User ID for memory system
+        """
+        self.llm_client = llm_client
+        self.system_info = system_info
+        self.command_analyzer = command_analyzer
+        self.max_iterations = max_iterations
+        self.current_iteration = 0
+        self.template = self._load_template(template_path)
+        self.model = getattr(llm_client, 'model', 'gpt-4')
+        self.conversation_history = []
+        
+        # Memory system
+        self.memory_enabled = memory_enabled
+        self.user_id = user_id
+        self.session_id = None
+        
+        if memory_enabled:
+            try:
+                from terminal_agent.memory.memory_database import MemoryDatabase
+                from terminal_agent.memory.context_manager import ContextManager
+                from terminal_agent.memory.session_manager import SessionManager
+                
+                if memory_db is None:
+                    self.memory_db = MemoryDatabase()
+                else:
+                    self.memory_db = memory_db
+                
+                self.context_manager = ContextManager(self.memory_db, llm_client)
+                self.session_manager = SessionManager(self.memory_db, self.context_manager)
+                logger.info("Memory system initialized for function call agent")
+            except ImportError as e:
+                logger.warning(f"Failed to import memory modules: {e}")
+                self.memory_enabled = False
+        
+        # Create template if it doesn't exist
+        if not os.path.exists(template_path):
+            self._create_default_template(template_path)
+    
+    def _load_template(self, template_path: str) -> str:
+        """Load prompt template from file"""
+        try:
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except FileNotFoundError:
+            logger.warning(f"Template file not found, creating default")
+            self._create_default_template(template_path)
+            with open(template_path, 'r', encoding='utf-8') as f:
+                return f.read()
+    
+    def _create_default_template(self, template_path: str) -> None:
+        """Create default function call prompt template"""
+        os.makedirs(os.path.dirname(template_path), exist_ok=True)
+        
+        default_template = """
+        You are a SagesAI CLI assistant that can use tools to complete tasks. 
+
+Current system information:
+- OS: {os}
+- Distribution: {distribution}
+- Version: {version}
+- Architecture: {architecture}
+- Current directory: {current_working_directory}
+
+Use the tools available to you to complete the user's request. When you use a tool, you will receive its response which you can use to inform your next steps.
+
+Guidelines:
+1. Think step by step about what needs to be done
+2. Use the appropriate tools to gather information or perform actions
+3. Always provide a clear and helpful response to the user
+4. If a tool fails, try to understand why and adjust your approach
+5. Be efficient in your tool usage
+
+Available tools and their usage:
+- shell: Execute shell commands
+- script: Create and execute scripts
+- files: File operations (read, write, list, etc.)
+- web_search: Search the web for information
+- web_page: Fetch content from web pages
+- get_folder_structure: Analyze directory structure
+- code_edit: Edit code files with syntax checking
+- message: Ask the user for clarification
+
+Respond naturally to the user, incorporating tool results into your responses when appropriate."""
+        
+        with open(template_path, 'w', encoding='utf-8') as f:
+            f.write(default_template)
+    
+    def _show_processing_message(self, message: str) -> None:
+        """Show processing message to user"""
+        console.print(Panel(
+            f"[bold yellow]Processing...[/bold yellow]\n[dim]{message}[/dim]",
+            title="[bold blue]Terminal Agent[/bold blue]",
+            border_style="blue",
+            expand=False
+        ))
+    
+    def _format_tool_call_display(self, tool_name: str, arguments: Dict[str, Any]) -> str:
+        """Format tool call for display"""
+        if tool_name == "shell":
+            return f"⚡ **execute:** `{arguments.get('command', '')}`"
+        elif tool_name == "files":
+            operation = arguments.get('operation', '')
+            file_path = arguments.get('file_path', '') or arguments.get('directory_path', '')
+            if operation == "read_file":
+                return f"📖 **read** `{file_path}`"
+            elif operation == "write_file":
+                return f"✏️ **write to** `{file_path}`"
+            elif operation == "list_directory":
+                return f"📁 **list contents of** `{file_path}`"
+            else:
+                return f"📄 **{operation}** `{file_path}`"
+        elif tool_name == "web_search":
+            return f"🔍 **search for:** `{arguments.get('query', '')}`"
+        elif tool_name == "web_page":
+            return f"🌐 **fetch:** `{arguments.get('url', '')}`"
+        elif tool_name == "get_folder_structure":
+            return f"📂 **analyze structure of** `{arguments.get('repo_dir', '.')}`"
+        elif tool_name == "code_edit":
+            return f"✏️ **edit** `{arguments.get('file_path', '')}`"
+        elif tool_name == "message":
+            return f"❓ **ask:** `{arguments.get('question', '')}`"
+        else:
+            return f"⚙️ **use** `{tool_name}` **tool**"
+    
+    def execute(self, query: str) -> str:
+        """
+        Execute the agent with function calling
+        
+        Args:
+            query: User's query
+            
+        Returns:
+            Final response to the user
+        """
+        self.current_iteration = 0
+        self.conversation_history = []
+        reset_stop_flag()
+        
+        # Update system info
+        self._update_system_info()
+        
+        # Initialize memory session if enabled
+        if self.memory_enabled:
+            self.session_id = self.session_manager.get_or_create_session(self.user_id)
+            
+            # Store user query at the beginning for proper timing
+            try:
+                self.session_manager.add_message(
+                    self.session_id,
+                    "user",
+                    query,
+                    "message"
+                )
+            except Exception as e:
+                logger.error(f"Error storing user query: {e}")
+        
+        # Build messages
+        messages = self._build_messages(query)
+        
+        # Main execution loop
+        while self.current_iteration < self.max_iterations:
+            self.current_iteration += 1
+            
+            if should_stop_operations():
+                return "Task stopped by user"
+            
+            try:
+                # Get available tools with detailed descriptions for better LLM understanding
+                tools = tool_registry.get_tools(use_detailed_descriptions=True)
+                
+                # Call LLM with function calling
+                response = self.llm_client.provider.call_with_messages_and_functions(
+                    messages=messages,
+                    tools=tools
+                )
+                
+                # Get the message from response (handle both OpenAI object and dict formats)
+                if hasattr(response, 'choices') and response.choices:
+                    # OpenAI object format
+                    message = response.choices[0].message
+                elif isinstance(response, dict):
+                    # Dictionary format from other providers
+                    message = response
+                else:
+                    # Fallback - assume response is the message
+                    message = response
+                    
+                logger.info(f"LLM response: {message}")
+                
+                # Check if we have tool calls (handle both object and dict formats)
+                has_tool_calls = False
+                if hasattr(message, 'tool_calls') and message.tool_calls:
+                    has_tool_calls = True
+                elif isinstance(message, dict) and 'tool_calls' in message and message['tool_calls']:
+                    has_tool_calls = True
+                
+                if has_tool_calls:
+                    if hasattr(message, 'content') and message.content:
+                        console.print(Panel(
+                            Markdown(message.content),
+                            title="[bold blue]Get[/bold blue]",
+                            border_style="blue",
+                            expand=False
+                        ))
+                    # Process tool calls and continue to next iteration
+                    self._process_tool_calls(message, messages)
+                    continue
+                
+                # No tool calls - this is the final response
+                content = None
+                if hasattr(message, 'content') and message.content:
+                    content = message.content
+                elif isinstance(message, dict) and 'content' in message:
+                    content = message['content']
+                
+                if content:
+                    final_response = content
+                    logger.info(f"Final response: {final_response}")
+                    # Display final response
+                    console.print(Panel(
+                        Markdown(final_response),
+                        title="[bold green]Response[/bold green]",
+                        border_style="green",
+                        expand=False
+                    ))
+                    
+                    # Store in memory
+                    if self.memory_enabled and self.session_id:
+                        self._store_final_response(query, final_response)
+                    
+                    return final_response
+            
+            except Exception as e:
+                logger.error(f"Error in function call loop: {str(e)}")
+                self._show_processing_message(f"Retrying... ({str(e)})")
+                continue
+        
+        # Max iterations reached
+        return "Maximum iterations reached. Please try rephrasing your request."
+    
+    def _update_system_info(self):
+        """Update system information including current directory"""
+        if hasattr(forwarder, 'remote_enabled') and forwarder.remote_enabled:
+            try:
+                exit_code, stdout, stderr = forwarder.forward_command("pwd")
+                if exit_code == 0:
+                    self.system_info["current_working_directory"] = stdout.strip()
+                else:
+                    self.system_info["current_working_directory"] = "<unknown remote directory>"
+            except Exception as e:
+                logger.error(f"Error getting remote directory: {e}")
+                self.system_info["current_working_directory"] = "<unknown remote directory>"
+        else:
+            self.system_info["current_working_directory"] = os.getcwd()
+    
+    def _build_messages(self, query: str) -> List[Dict[str, Any]]:
+        """Build message list for LLM"""
+        messages = []
+        
+        # System message
+        tools_description = "\n".join([
+            f"- {tool['function']['name']}: {tool['function']['description']}"
+            for tool in tool_registry.get_tools(use_detailed_descriptions=True)
+        ])
+        
+        system_prompt = self.template.format(
+            tools=tools_description,
+            **self.system_info
+        )
+        
+        messages.append({"role": "system", "content": system_prompt})
+        
+        # Add memory context if enabled
+        if self.memory_enabled and self.session_id:
+            try:
+                memory_messages = self.session_manager.get_messages_for_llm(
+                    self.user_id, model=self.model
+                )
+                messages.extend(memory_messages)
+            except Exception as e:
+                logger.error(f"Error loading memory: {e}")
+        
+        # User query
+        messages.append({"role": "user", "content": query})
+        
+        return messages
+    
+    def _process_tool_calls(self, message, messages):
+        """Process tool calls and add results to messages"""
+        tool_call_results = []
+        
+        # Get tool calls from message (handle both object and dict formats)
+        if hasattr(message, 'tool_calls'):
+            tool_calls = message.tool_calls
+        elif isinstance(message, dict) and 'tool_calls' in message:
+            tool_calls = message['tool_calls']
+        else:
+            logger.error("No tool calls found in message")
+            return tool_call_results
+        
+        # Process each tool call
+        for tool_call in tool_calls:
+            # Handle both object and dict formats for tool_call
+            if hasattr(tool_call, 'function'):
+                # Object format (OpenAI)
+                tool_name = tool_call.function.name
+                tool_id = tool_call.id
+                arguments = tool_call.function.arguments
+            elif isinstance(tool_call, dict) and 'function' in tool_call:
+                # Dict format (other providers)
+                tool_name = tool_call['function']['name']
+                tool_id = tool_call.get('id', f"call_{hash(str(tool_call))}")
+                arguments = tool_call['function'].get('arguments', '{}')
+            else:
+                logger.error(f"Invalid tool call format: {tool_call}")
+                continue
+                
+            try:
+                tool_args = json.loads(arguments)
+                
+                # Display tool usage
+                display_text = self._format_tool_call_display(tool_name, tool_args)
+                console.print(Panel(
+                    Markdown(display_text),
+                    title=f"[bold blue]Using Tool: {tool_name}[/bold blue]",
+                    border_style="blue",
+                    expand=False
+                ))
+                
+                # Execute the function
+                result = tool_registry.execute_tool(
+                    FunctionCall(name=tool_name, arguments=tool_args)
+                )
+                
+                # Store the result
+                tool_call_results.append({
+                    "tool_call_id": tool_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": str(result)
+                })
+                
+            except json.JSONDecodeError as e:
+                error_msg = f"Invalid JSON in tool arguments for {tool_name}: {str(e)}"
+                logger.error(f"JSON decode error for {tool_name}: {e}")
+                tool_call_results.append({
+                    "tool_call_id": tool_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": f"Error: Invalid JSON format in tool arguments. Expected valid JSON but got: {str(e)[:200]}"
+                })
+            except Exception as e:
+                error_msg = f"Error executing tool {tool_name}: {str(e)}"
+                logger.exception(f"Tool execution error for {tool_name}: {e}")
+                
+                # Provide more user-friendly error messages for common issues
+                if "Unknown tool" in str(e):
+                    user_error = f"Error: Tool '{tool_name}' is not available or not registered."
+                elif "required" in str(e).lower() and "argument" in str(e).lower():
+                    user_error = f"Error: Tool '{tool_name}' is missing required arguments. Please check the tool parameters."
+                elif "timeout" in str(e).lower():
+                    user_error = f"Error: Tool '{tool_name}' execution timed out. Please try again."
+                else:
+                    user_error = f"Error: Tool '{tool_name}' failed to execute: {str(e)[:200]}"
+                
+                tool_call_results.append({
+                    "tool_call_id": tool_id,
+                    "role": "tool",
+                    "name": tool_name,
+                    "content": user_error
+                })
+        
+        # Add the assistant's tool calls to the message history
+        assistant_message = {
+            "role": "assistant",
+            "content": message.get('content', '') if isinstance(message, dict) else getattr(message, 'content', ''),
+            "tool_calls": [
+                {
+                    "id": tc.get('id') if isinstance(tc, dict) else tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc['function']['name'] if isinstance(tc, dict) else tc.function.name,
+                        "arguments": tc['function'].get('arguments', '{}') if isinstance(tc, dict) else tc.function.arguments
+                    }
+                } for tc in tool_calls
+            ]
+        }
+        messages.append(assistant_message)
+        
+        # Add all tool call results to messages
+        messages.extend(tool_call_results)
+        
+        # Store in memory if enabled
+        if self.memory_enabled and self.session_id:
+            self._store_tool_calls_separately(message, tool_call_results)
+        
+        return tool_call_results
+    
+    def _store_tool_calls_separately(self, message, tool_call_results):
+        """Store tool calls and results separately in correct chronological order"""
+        if not self.memory_enabled or not self.session_id:
+            return
+        
+        try:
+            # Get content from message (handle both object and dict formats)
+            assistant_content = message.get('content', '') if isinstance(message, dict) else getattr(message, 'content', '')
+            message_content = assistant_content if assistant_content else "[Tool calls execution]"
+            
+            # Get tool calls from message (handle both object and dict formats)
+            if hasattr(message, 'tool_calls'):
+                tool_calls = message.tool_calls
+            elif isinstance(message, dict) and 'tool_calls' in message:
+                tool_calls = message['tool_calls']
+            else:
+                logger.error("No tool calls found in message for storage")
+                return
+            
+            # Include tool_calls data in message metadata for proper OpenAI format reconstruction
+            tool_calls_data = [
+                {
+                    "id": tc.get('id') if isinstance(tc, dict) else tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc['function']['name'] if isinstance(tc, dict) else tc.function.name,
+                        "arguments": tc['function'].get('arguments', '{}') if isinstance(tc, dict) else tc.function.arguments
+                    }
+                } for tc in tool_calls
+            ]
+            
+            # Store assistant message with tool_calls metadata
+            assistant_message_id = self.session_manager.add_message(
+                self.session_id,
+                "assistant",
+                message_content,
+                "message",
+                metadata={"tool_calls": tool_calls_data}
+            )
+            
+            # Create a mapping from tool_call_id to result for efficient lookup
+            result_map = {result['tool_call_id']: result['content'] for result in tool_call_results}
+            
+            # Store tool calls and results in chronological order
+            for tool_call in tool_calls:
+                try:
+                    # Handle both object and dict formats for tool_call
+                    if hasattr(tool_call, 'function'):
+                        # Object format (OpenAI)
+                        tool_name = tool_call.function.name
+                        tool_id = tool_call.id
+                        arguments = tool_call.function.arguments
+                    elif isinstance(tool_call, dict) and 'function' in tool_call:
+                        # Dict format (other providers)
+                        tool_name = tool_call['function']['name']
+                        tool_id = tool_call.get('id', f"call_{hash(str(tool_call))}")
+                        arguments = tool_call['function'].get('arguments', '{}')
+                    else:
+                        logger.error(f"Invalid tool call format: {tool_call}")
+                        continue
+                    
+                    tool_args = json.loads(arguments)
+                    tool_result = result_map.get(tool_id, '')
+                    
+                    # Store tool call in standard OpenAI format
+                    tool_call_data = {
+                        "id": tool_id,
+                        "type": "function",
+                        "function": {
+                            "name": tool_name,
+                            "arguments": arguments
+                        }
+                    }
+                    
+                    # Store tool call in tool_calls table with tool_call_id
+                    self.session_manager.add_tool_call(
+                        assistant_message_id,
+                        tool_name,
+                        tool_call_data,
+                        tool_result,
+                        tool_id
+                    )
+                    
+                    # Store tool result as separate message in exact OpenAI format
+                    self.session_manager.add_message(
+                        self.session_id,
+                        "tool",
+                        tool_result,
+                        "tool_result",
+                        metadata={"tool_call_id": tool_call.id}
+                    )
+                except Exception as e:
+                    logger.error(f"Error storing tool call {tool_call.id}: {e}")
+            
+            logger.debug(f"Stored assistant message with {len(message.tool_calls)} tool calls in memory")
+            
+        except Exception as e:
+            logger.error(f"Error storing tool calls separately: {e}")
+    
+    def _store_assistant_message_with_tool_calls(self, message, tool_call_results):
+        """Legacy method - use _store_tool_calls_separately instead"""
+        self._store_tool_calls_separately(message, tool_call_results)
+    
+    def _store_tool_call(self, function_name: str, arguments: Dict[str, Any], result: str):
+        """Store individual tool call in memory (legacy method for compatibility)"""
+        if not self.memory_enabled or not self.session_id:
+            return
+        
+        try:
+            # Create tool call data in standard OpenAI format
+            tool_call_data = {
+                "tool_name": function_name,
+                "arguments": arguments,
+                "result": result,
+                "timestamp": time.time(),
+                "message_type": "tool_call"
+            }
+            
+            # Store as tool message
+            self.session_manager.add_message(
+                self.session_id,
+                "tool",
+                result,
+                "tool_call",
+                metadata=tool_call_data
+            )
+            
+            logger.debug(f"Stored tool call in memory: {function_name}")
+            
+        except Exception as e:
+            logger.error(f"Error storing tool call in memory: {e}")
+    
+    def _store_final_response(self, query: str, response: str):
+        """Store final response conversation in memory with proper timing"""
+        try:
+            # User query is already stored at the beginning, so just store assistant response
+            self.session_manager.add_message(
+                self.session_id, 
+                "assistant", 
+                response, 
+                "message"
+            )
+        except Exception as e:
+            logger.error(f"Error storing final response conversation: {e}")
+    
+    def _store_conversation(self, query: str, response: str):
+        """Store conversation in memory (legacy method for compatibility)"""
+        try:
+            self.session_manager.add_message(
+                self.session_id, "user", query, "message"
+            )
+            self.session_manager.add_message(
+                self.session_id, "assistant", response, "message"
+            )
+        except Exception as e:
+            logger.error(f"Error storing conversation: {e}")
+
+
+def create_function_call_agent(llm_client: LLMClient,
+                              system_info: Dict[str, Any],
+                              command_analyzer: Optional[CommandAnalyzer] = None,
+                              memory_enabled: bool = False,
+                              memory_db: Optional[Any] = None,
+                              user_id: str = "default_user") -> FunctionCallAgent:
+    """
+    Create and configure a function call ReAct agent
+    
+    Args:
+        llm_client: LLM client for API interactions
+        system_info: Dictionary containing system information
+        command_analyzer: Analyzer for command safety
+        memory_enabled: Whether to enable memory system
+        memory_db: Memory database instance
+        user_id: User ID for memory system
+    
+    Returns:
+        FunctionCallAgent: Configured function call agent
+    """
+    return FunctionCallAgent(
+        llm_client=llm_client,
+        system_info=system_info,
+        command_analyzer=command_analyzer,
+        memory_enabled=memory_enabled,
+        memory_db=memory_db,
+        user_id=user_id
+    )
