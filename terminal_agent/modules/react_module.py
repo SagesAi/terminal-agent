@@ -16,6 +16,7 @@ from rich.markdown import Markdown
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
 from terminal_agent.react.agent import create_react_agent, ReActAgent, ToolName
+from terminal_agent.react.function_call_agent import create_function_call_agent, FunctionCallAgent
 from terminal_agent.utils.logging_config import get_logger
 
 # Initialize Rich console
@@ -64,8 +65,8 @@ class ReActModule:
                 logger.warning(f"Failed to import memory modules: {e}. Memory system disabled.")
                 self.memory_enabled = False
         
-        # Create the ReAct agent
-        self.agent = create_react_agent(
+        # Create the Function Call ReAct agent
+        self.agent = create_function_call_agent(
             llm_client, 
             system_info, 
             self.command_analyzer,
@@ -86,12 +87,12 @@ class ReActModule:
             Response text with results
         """
         # Display a friendly message indicating that we're processing the query
-        console.print(Panel(
-            "[bold]Processing your request...[/bold]"
-            "I'll complete your task right away.",
-            title="[bold blue]Terminal Agent[/bold blue]",
-            expand=False
-        ))
+        #console.print(Panel(
+        #    "[bold]Processing your request...[/bold]"
+        #    "I'll complete your task right away.",
+        #   title="[bold blue]Terminal Agent[/bold blue]",
+        #   expand=False
+        #))
         
         # Execute the query using the ReAct agent
         result = self.agent.execute(query)
