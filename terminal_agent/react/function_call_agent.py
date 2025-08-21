@@ -570,12 +570,11 @@ Respond naturally to the user, incorporating tool results into your responses wh
                         "tool",
                         tool_result,
                         "tool_result",
-                        metadata={"tool_call_id": tool_call.id}
+                        metadata={"tool_call_id": tool_id}
                     )
                 except Exception as e:
-                    logger.error(f"Error storing tool call {tool_call.id}: {e}")
+                    logger.error(f"Error storing tool call {tool_id}: {e}")
             
-            logger.debug(f"Stored assistant message with {len(message.tool_calls)} tool calls in memory")
             
         except Exception as e:
             logger.error(f"Error storing tool calls separately: {e}")
