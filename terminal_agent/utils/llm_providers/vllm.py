@@ -322,3 +322,81 @@ class VLLMProvider(BaseLLMProvider):
                 max_tokens=max_tokens,
                 **kwargs
             )
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call VLLM API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Create request payload
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "tools": tools,
+                "tool_choice": "auto"
+            }
+            
+            # Add any additional parameters
+            for key, value in kwargs.items():
+                if key not in payload:
+                    payload[key] = value
+            
+            # Call the API
+            response = self.client.post(
+                f"{self.api_base}/v1/chat/completions",
+                json=payload
+            )
+            
+            # Check for errors
+            if response.status_code != 200:
+                error_msg = f"VLLM API error: Status {response.status_code}, Response: {response.text}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+            
+            # Parse the response
+            data = response.json()
+            
+            # Create response object compatible with OpenAI format
+            message = data["choices"][0]["message"]
+            
+            response_obj = {
+                "role": "assistant",
+                "content": message.get("content", "")
+            }
+            
+            # Add tool calls if present
+            if "tool_calls" in message:
+                response_obj["tool_calls"] = message["tool_calls"]
+            
+            return response_obj
+            
+        except httpx.ConnectError as e:
+            error_msg = f"Unable to connect to VLLM API at {self.api_base}: {str(e)}"
+            logger.error(error_msg)
+            raise ConnectionError(error_msg)
+            
+        except Exception as e:
+            # Re-raise other exceptions
+            logger.error(f"Error calling VLLM API with tools: {str(e)}")
+            raise

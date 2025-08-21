@@ -4,6 +4,7 @@ DeepSeek Provider Implementation
 This module implements the DeepSeek provider for the LLM client.
 """
 
+import json
 import os
 import httpx
 from typing import List, Dict, Any, Optional, Union
@@ -193,3 +194,91 @@ class DeepSeekProvider(BaseLLMProvider):
             max_tokens=max_tokens,
             **kwargs
         )
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 4096,
+                                        **kwargs) -> Any:
+        """
+        Call the DeepSeek API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Prepare headers
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
+
+            # Prepare payload
+            payload = {
+                "model": self.model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "tools": tools,
+                "tool_choice": "auto"
+            }
+
+            # Add any additional parameters
+            payload.update(kwargs)
+
+            # Call the API
+            try:
+                with httpx.Client(timeout=60.0*3) as client:
+                    response = client.post(
+                        f"{self.api_base}/chat/completions",
+                        headers=headers,
+                        json=payload
+                    )
+
+                    # Check for errors
+                    if response.status_code != 200:
+                        logger.error(f"DeepSeek API Error: Status {response.status_code}")
+                        logger.error(f"Response: {response.text}")
+                        response.raise_for_status()
+
+                    # Parse the response
+                    data = response.json()
+
+                # Create response object similar to OpenAI format
+                message = data["choices"][0]["message"]
+                logger.info(f"DeepSeek response: {message}")
+                # Ensure the response has the expected structure
+                result = {
+                    "role": "assistant",
+                    "content": message.get("content", "")
+                }
+                
+                # Add tool calls if present
+                if "tool_calls" in message:
+                    result["tool_calls"] = message["tool_calls"]
+                
+                return result
+
+            except httpx.ConnectError as e:
+                logger.error(f"Connection error with DeepSeek API: {str(e)}")
+                raise ConnectionError(f"Unable to connect to DeepSeek API: {str(e)}")
+
+        except ConnectionError:
+            # Re-raise connection errors
+            raise
+        except Exception as e:
+            # Log and re-raise other exceptions
+            logger.error(f"Error calling DeepSeek API with tools: {str(e)}")
+            raise

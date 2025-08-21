@@ -5,6 +5,7 @@ This module implements the Google Gemini provider for the LLM client.
 """
 
 import os
+import json
 from typing import List, Dict, Any, Optional, Union
 import logging
 from rich.console import Console
@@ -199,6 +200,110 @@ class GeminiProvider(BaseLLMProvider):
             logger.error(f"Error calling Gemini API: {str(e)}")
             raise
     
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call Gemini API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Convert messages to Gemini format
+            gemini_messages = self._convert_to_gemini_messages(messages)
+            
+            # Convert OpenAI tools format to Gemini function declarations
+            function_declarations = []
+            for tool in tools:
+                if "function" in tool:
+                    func = tool["function"]
+                    function_declaration = {
+                        "name": func["name"],
+                        "description": func.get("description", "")
+                    }
+                    if "parameters" in func:
+                        function_declaration["parameters"] = func["parameters"]
+                    function_declarations.append(function_declaration)
+            
+            # Create generation config
+            generation_config = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+                "top_p": kwargs.get("top_p", 0.95),
+                "top_k": kwargs.get("top_k", 40)
+            }
+            
+            # Create tool config if functions are provided
+            tool_config = None
+            if function_declarations:
+                self.model_obj._tools = function_declarations
+                tool_config = {
+                    "function_calling_config": {
+                        "mode": "AUTO"
+                    }
+                }
+            
+            # Handle chat history if there are multiple messages
+            if len(gemini_messages) > 1:
+                chat = self.model_obj.start_chat(history=gemini_messages[:-1])
+                response = chat.send_message(
+                    gemini_messages[-1]["parts"][0]["text"],
+                    generation_config=generation_config,
+                    tools=tool_config
+                )
+            else:
+                # Single message case
+                response = self.model_obj.generate_content(
+                    gemini_messages[0]["parts"][0]["text"],
+                    generation_config=generation_config,
+                    tools=tool_config
+                )
+            
+            # Create response object compatible with OpenAI format
+            result = {
+                "role": "assistant",
+                "content": response.text if hasattr(response, 'text') else ""
+            }
+            
+            # Handle function calls
+            if hasattr(response, 'function_call') and response.function_call:
+                tool_calls = [{
+                    "id": f"call_{hash(str(response.function_call))}",
+                    "type": "function",
+                    "function": {
+                        "name": response.function_call.name,
+                        "arguments": json.dumps(response.function_call.args) if hasattr(response.function_call, 'args') else "{}"
+                    }
+                }]
+                result["tool_calls"] = tool_calls
+            
+            return result
+            
+        except Exception as e:
+            # Check if it's a connection error
+            if "connect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Connection error with Gemini API: {str(e)}")
+                raise ConnectionError(f"Unable to connect to Gemini API: {str(e)}")
+            
+            # Re-raise other exceptions
+            logger.error(f"Error calling Gemini API with tools: {str(e)}")
+            raise
+    
     def call_with_prompt(self, 
                         prompt: str, 
                         temperature: float = 0.2,
@@ -246,4 +351,108 @@ class GeminiProvider(BaseLLMProvider):
             
             # Re-raise other exceptions
             logger.error(f"Error calling Gemini API: {str(e)}")
+            raise
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call Gemini API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Convert messages to Gemini format
+            gemini_messages = self._convert_to_gemini_messages(messages)
+            
+            # Convert OpenAI tools format to Gemini function declarations
+            function_declarations = []
+            for tool in tools:
+                if "function" in tool:
+                    func = tool["function"]
+                    function_declaration = {
+                        "name": func["name"],
+                        "description": func.get("description", "")
+                    }
+                    if "parameters" in func:
+                        function_declaration["parameters"] = func["parameters"]
+                    function_declarations.append(function_declaration)
+            
+            # Create generation config
+            generation_config = {
+                "temperature": temperature,
+                "max_output_tokens": max_tokens,
+                "top_p": kwargs.get("top_p", 0.95),
+                "top_k": kwargs.get("top_k", 40)
+            }
+            
+            # Create tool config if functions are provided
+            tool_config = None
+            if function_declarations:
+                self.model_obj._tools = function_declarations
+                tool_config = {
+                    "function_calling_config": {
+                        "mode": "AUTO"
+                    }
+                }
+            
+            # Handle chat history if there are multiple messages
+            if len(gemini_messages) > 1:
+                chat = self.model_obj.start_chat(history=gemini_messages[:-1])
+                response = chat.send_message(
+                    gemini_messages[-1]["parts"][0]["text"],
+                    generation_config=generation_config,
+                    tools=tool_config
+                )
+            else:
+                # Single message case
+                response = self.model_obj.generate_content(
+                    gemini_messages[0]["parts"][0]["text"],
+                    generation_config=generation_config,
+                    tools=tool_config
+                )
+            
+            # Create response object compatible with OpenAI format
+            result = {
+                "role": "assistant",
+                "content": response.text if hasattr(response, 'text') else ""
+            }
+            
+            # Handle function calls
+            if hasattr(response, 'function_call') and response.function_call:
+                tool_calls = [{
+                    "id": f"call_{hash(str(response.function_call))}",
+                    "type": "function",
+                    "function": {
+                        "name": response.function_call.name,
+                        "arguments": json.dumps(response.function_call.args) if hasattr(response.function_call, 'args') else "{}"
+                    }
+                }]
+                result["tool_calls"] = tool_calls
+            
+            return result
+            
+        except Exception as e:
+            # Check if it's a connection error
+            if "connect" in str(e).lower() or "connection" in str(e).lower():
+                logger.error(f"Connection error with Gemini API: {str(e)}")
+                raise ConnectionError(f"Unable to connect to Gemini API: {str(e)}")
+            
+            # Re-raise other exceptions
+            logger.error(f"Error calling Gemini API with tools: {str(e)}")
             raise

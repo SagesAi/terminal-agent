@@ -5,6 +5,7 @@ This module implements the Kimi provider for the LLM client.
 """
 
 import os
+import json
 from typing import List, Dict, Any, Optional, Union
 import logging
 from rich.console import Console
@@ -161,3 +162,61 @@ class KimiProvider(BaseLLMProvider):
         """
         messages = [{"role": "user", "content": prompt}]
         return self.call_with_messages(messages, temperature, max_tokens, **kwargs)
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 4096,
+                                        **kwargs) -> Any:
+        """
+        Call Kimi API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        url = f"{self.api_base}/chat/completions"
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "tools": tools,
+            "tool_choice": "auto",
+            **kwargs
+        }
+
+        try:
+            response = self.session.post(url, json=payload)
+            response.raise_for_status()
+            result = response.json()
+            
+            # Create response object compatible with OpenAI format
+            message = result["choices"][0]["message"]
+            
+            response_obj = {
+                "role": "assistant",
+                "content": message.get("content", "")
+            }
+            
+            # Add tool calls if present
+            if "tool_calls" in message:
+                response_obj["tool_calls"] = message["tool_calls"]
+            
+            return response_obj
+            
+        except Exception as e:
+            logger.error(f"Error calling Kimi API with tools: {str(e)}")
+            raise

@@ -327,3 +327,95 @@ class OllamaProvider(BaseLLMProvider):
                 max_tokens=max_tokens,
                 **kwargs
             )
+    
+    def call_with_messages_and_functions(self,
+                                        messages: List[Dict[str, Any]],
+                                        tools: List[Dict[str, Any]],
+                                        temperature: float = 0.2,
+                                        max_tokens: int = 2000,
+                                        **kwargs) -> Any:
+        """
+        Call Ollama API with function calling support.
+        
+        Args:
+            messages: List of message dictionaries
+            tools: List of tool definitions for function calling
+            temperature: Sampling temperature (0.0 to 1.0)
+            max_tokens: Maximum number of tokens to generate
+            **kwargs: Additional provider-specific parameters
+            
+        Returns:
+            Any: The response object with potential function_call
+            
+        Raises:
+            ConnectionError: When there's a connection issue with the API
+            Exception: For other errors
+        """
+        try:
+            # Format messages for Ollama (which uses OpenAI-compatible format)
+            formatted_messages = []
+            for msg in messages:
+                # Ensure role is one of: system, user, assistant
+                role = msg.get("role", "user")
+                if role not in ["system", "user", "assistant"]:
+                    role = "user"
+                
+                formatted_messages.append({
+                    "role": role,
+                    "content": msg.get("content", "")
+                })
+            
+            # Create request payload
+            payload = {
+                "model": self.model,
+                "messages": formatted_messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
+                "stream": False,  # Don't stream the response
+                "tools": tools,
+                "tool_choice": "auto"
+            }
+            
+            # Add any additional parameters
+            for key, value in kwargs.items():
+                if key not in payload:
+                    payload[key] = value
+            
+            # Call the API
+            response = self.client.post(
+                f"{self.api_base}/api/chat",
+                json=payload
+            )
+            
+            # Check for errors
+            if response.status_code != 200:
+                error_msg = f"Ollama API error: Status {response.status_code}, Response: {response.text}"
+                logger.error(error_msg)
+                raise Exception(error_msg)
+            
+            # Parse the response
+            data = response.json()
+            
+            # Create response object compatible with OpenAI format
+            message = data.get("message", {})
+            
+            response_obj = {
+                "role": "assistant",
+                "content": message.get("content", "")
+            }
+            
+            # Add tool calls if present
+            if "tool_calls" in message:
+                response_obj["tool_calls"] = message["tool_calls"]
+            
+            return response_obj
+            
+        except httpx.ConnectError as e:
+            error_msg = f"Unable to connect to Ollama API at {self.api_base}: {str(e)}"
+            logger.error(error_msg)
+            raise ConnectionError(error_msg)
+            
+        except Exception as e:
+            # Re-raise other exceptions
+            logger.error(f"Error calling Ollama API with tools: {str(e)}")
+            raise
