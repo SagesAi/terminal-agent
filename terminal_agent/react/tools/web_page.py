@@ -13,29 +13,84 @@ from ...utils.crawler import Crawler
 
 logger = logging.getLogger(__name__)
 
+WEB_PAGE_DESCRIPTION = """
+        Fetch and extract readable content from web url provided by web search tool with intelligent processing.
+        
+        Features:
+        - HTML content extraction and cleaning
+        - Article and main content detection
+        - JavaScript-free text extraction
+        - Metadata preservation (title, author, date)
+        - Link and image extraction
+        - Character encoding handling
+        - HTTP error handling
+        
+        Content extraction:
+        - Main article text extraction
+        - Navigation and advertisement removal
+        - Code block preservation
+        - Table and list formatting
+        - Link URL collection
+        
+        Use this tool for:
+        - Documentation reading
+        - Article content analysis
+        - API endpoint documentation
+        - Tutorial and guide extraction
+        - Research paper access
+        """ 
+
+TOOL_SCHEMA = {
+    "type": "function",
+    "function": {
+        "name": "web_page",
+        "description": WEB_PAGE_DESCRIPTION,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL to crawl"
+                },
+                "format": {
+                    "type": "string",
+                    "description": "Output format (markdown or json)",
+                    "default": "markdown"
+                }
+            },
+            "required": ["url"]
+        }
+    }
+}
 
 def web_page_tool(query: str) -> str:
     """
     Crawl a web page and extract its content.
     
     Args:
-        query: A JSON string containing the URL to crawl and optional parameters.
-               Format: {"url": "https://example.com", "format": "markdown"}
+        query: Either a URL string, a JSON string, or a dictionary containing the URL to crawl 
+               and optional parameters. Format: {"url": "https://example.com", "format": "markdown"}
                
     Returns:
         The extracted content in the specified format (markdown by default).
     """
     try:
-        # Parse the query as JSON
-        try:
-            params = json.loads(query)
-        except json.JSONDecodeError:
-            # If the query is not valid JSON, assume it's a URL
-            params = {"url": query}
+        # Handle case where query is already a dictionary
+        if isinstance(query, dict):
+            params = query
+        # Parse the query as JSON if it's a string
+        elif isinstance(query, str):
+            try:
+                params = json.loads(query)
+            except json.JSONDecodeError:
+                # If the query is not valid JSON, assume it's a URL
+                params = {"url": query}
+        else:
+            return "Error: Invalid input type. Expected URL string, JSON string, or dictionary."
         
         # Extract parameters
-        url = params.get("url", "")
-        output_format = params.get("format", "markdown")
+        url = str(params.get("url", "")).strip()
+        output_format = str(params.get("format", "markdown")).lower()
         
         if not url:
             return "Error: No URL provided. Please provide a URL to crawl."

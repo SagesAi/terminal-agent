@@ -17,13 +17,14 @@ from rich.markdown import Markdown
 from rich.panel import Panel
 from rich.syntax import Syntax
 from pydantic import BaseModel, Field
+from datetime import datetime
 
 from terminal_agent.utils.llm_client import LLMClient
 from terminal_agent.utils.command_analyzer import CommandAnalyzer
 from terminal_agent.utils.command_forwarder import forwarder
 from terminal_agent.utils.command_executor import execute_command, should_stop_operations, reset_stop_flag
 from terminal_agent.utils.logging_config import get_logger
-from terminal_agent.react.function_call_tools import tool_registry, FunctionCall
+from terminal_agent.react.function_call_tools import openai_tool_registry
 
 # Initialize Rich console
 console = Console()
@@ -163,30 +164,31 @@ Respond naturally to the user, incorporating tool results into your responses wh
     def _format_tool_call_display(self, tool_name: str, arguments: Dict[str, Any]) -> str:
         """Format tool call for display"""
         if tool_name == "shell":
-            return f"⚡ **execute:** `{arguments.get('command', '')}`"
-        elif tool_name == "files":
-            operation = arguments.get('operation', '')
-            file_path = arguments.get('file_path', '') or arguments.get('directory_path', '')
-            if operation == "read_file":
-                return f"📖 **read** `{file_path}`"
-            elif operation == "write_file":
-                return f"✏️ **write to** `{file_path}`"
-            elif operation == "list_directory":
-                return f"📁 **list contents of** `{file_path}`"
-            else:
-                return f"📄 **{operation}** `{file_path}`"
+            return f"[bold]⚡ execute: [/bold ]: {arguments.get('command', '')}"
+
+        elif tool_name == "write_file":
+            return f"✏️ [bold]write to[/bold ]: {arguments.get('file_path', '')}"
+        elif tool_name == "read_file":
+            file_path = arguments.get('file_path', '')
+            start_line = arguments.get('offset', 1)
+            limit = arguments.get('limit', 100)
+            end_line = start_line + limit - 1 if limit else 'end'
+      
+            tree = f"📖 [bold]read[/bold ]: {file_path}\n"
+            tree += f"   └── 📜 Lines: {start_line}-{end_line}"
+            return tree
         elif tool_name == "web_search":
-            return f"🔍 **search for:** `{arguments.get('query', '')}`"
+            return f"🔍 [bold]search for[/bold ]: {arguments.get('query', '')}"
         elif tool_name == "web_page":
-            return f"🌐 **fetch:** `{arguments.get('url', '')}`"
+            return f"🌐 [bold]fetch[/bold ]: {arguments.get('url', '')}"
         elif tool_name == "get_folder_structure":
-            return f"📂 **analyze structure of** `{arguments.get('repo_dir', '.')}`"
-        elif tool_name == "code_edit":
-            return f"✏️ **edit** `{arguments.get('file_path', '')}`"
+            return f"📂 [bold]analyze structure of[/bold ]: {arguments.get('repo_dir', '.')}"
+        elif tool_name == "edit_file":
+            return f"✏️ [bold]edit[/bold ]: {arguments.get('file_path', '')}"
         elif tool_name == "message":
-            return f"❓ **ask:** `{arguments.get('question', '')}`"
+            return f"❓ [bold]ask[/bold ]: {arguments.get('question', '')}"
         else:
-            return f"⚙️ **use** `{tool_name}` **tool**"
+            return f"⚙️ [bold]use[/bold ] {tool_name} tool"
     
     def execute(self, query: str) -> str:
         """
@@ -232,7 +234,7 @@ Respond naturally to the user, incorporating tool results into your responses wh
             
             try:
                 # Get available tools with detailed descriptions for better LLM understanding
-                tools = tool_registry.get_tools(use_detailed_descriptions=True)
+                tools = openai_tool_registry.get_tools()
                 
                 # Call LLM with function calling
                 response = self.llm_client.provider.call_with_messages_and_functions(
@@ -268,6 +270,7 @@ Respond naturally to the user, incorporating tool results into your responses wh
                             border_style="blue",
                             expand=False
                         ))
+                        console.print(" ")
                     # Process tool calls and continue to next iteration
                     self._process_tool_calls(message, messages)
                     continue
@@ -318,19 +321,16 @@ Respond naturally to the user, incorporating tool results into your responses wh
                 self.system_info["current_working_directory"] = "<unknown remote directory>"
         else:
             self.system_info["current_working_directory"] = os.getcwd()
+
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        self.system_info["current_date"] = f"Today's date: {current_date}"
     
     def _build_messages(self, query: str) -> List[Dict[str, Any]]:
         """Build message list for LLM"""
         messages = []
         
         # System message
-        tools_description = "\n".join([
-            f"- {tool['function']['name']}: {tool['function']['description']}"
-            for tool in tool_registry.get_tools(use_detailed_descriptions=True)
-        ])
-        
         system_prompt = self.template.format(
-            tools=tools_description,
             **self.system_info
         )
         
@@ -384,20 +384,39 @@ Respond naturally to the user, incorporating tool results into your responses wh
             try:
                 tool_args = json.loads(arguments)
                 
+                # Handle compound tool names (e.g., "files.write_file:7" -> "files")
+                original_tool_name = tool_name
+                if '.' in tool_name:
+                    # Extract the base tool name (e.g., "files" from "files.write_file:7")
+                    base_tool_name = tool_name.split('.')[0]
+                    
+                    # For files tool, extract the operation and add it to arguments
+                    if base_tool_name == "files":
+                        # Extract operation from tool name (e.g., "write_file" from "files.write_file:7")
+                        operation_part = tool_name.split('.')[1]
+                        if ':' in operation_part:
+                            operation = operation_part.split(':')[0]
+                        else:
+                            operation = operation_part
+                        
+                        # Add the operation to the arguments if not already present
+                        if 'operation' not in tool_args:
+                            tool_args['operation'] = operation
+                        
+                        # Use the base tool name for execution
+                        tool_name = base_tool_name
+                    else:
+                        # For other compound tools, just use the base name
+                        tool_name = base_tool_name
+                
                 # Display tool usage
                 display_text = self._format_tool_call_display(tool_name, tool_args)
-                console.print(Panel(
-                    Markdown(display_text),
-                    title=f"[bold blue]Using Tool: {tool_name}[/bold blue]",
-                    border_style="blue",
-                    expand=False
-                ))
-                
+                console.print(f"[bold blue]• Using Tool: {original_tool_name}[/bold blue]")
+                console.print(display_text)
+                console.print(" ")
                 # Execute the function
-                result = tool_registry.execute_tool(
-                    FunctionCall(name=tool_name, arguments=tool_args)
-                )
-                
+                result = openai_tool_registry.execute_tool(tool_name, tool_args)
+ 
                 # Store the result
                 tool_call_results.append({
                     "tool_call_id": tool_id,
