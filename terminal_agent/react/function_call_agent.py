@@ -75,6 +75,7 @@ class FunctionCallAgent:
         self.template = self._load_template(template_path)
         self.model = getattr(llm_client, 'model', 'gpt-4')
         self.conversation_history = []
+        self.messages = []  # Store all messages from current execute session
         
         # Memory system
         self.memory_enabled = memory_enabled
@@ -190,18 +191,22 @@ Respond naturally to the user, incorporating tool results into your responses wh
         else:
             return f"⚙️ [bold]use[/bold ] {tool_name} tool"
     
-    def execute(self, query: str) -> str:
+    def execute(self, query: str, preserve_history: bool = False) -> str:
         """
         Execute the agent with function calling
         
         Args:
             query: User's query
+            preserve_history: Whether to preserve existing conversation history
             
         Returns:
             Final response to the user
         """
+        # Reset messages for this execute session
+        self.messages = []
+        current_messages = []
         self.current_iteration = 0
-        self.conversation_history = []
+       
         reset_stop_flag()
         
         # Update system info
@@ -221,10 +226,22 @@ Respond naturally to the user, incorporating tool results into your responses wh
                 )
             except Exception as e:
                 logger.error(f"Error storing user query: {e}")
+
+        current_messages = self._build_system_messages()
         
+        if preserve_history:
+           # Add preserved history to self.messages
+           current_messages.extend(self.conversation_history)
+
+        
+
         # Build messages
-        messages = self._build_messages(query)
-        
+        if query:
+            current_messages.append({"role": "user", "content": query})
+            # Add built messages to self.messages
+          
+        #print(current_messages)
+        #print("self.max_iterations", self.max_iterations)
         # Main execution loop
         while self.current_iteration < self.max_iterations:
             self.current_iteration += 1
@@ -234,11 +251,18 @@ Respond naturally to the user, incorporating tool results into your responses wh
             
             try:
                 # Get available tools with detailed descriptions for better LLM understanding
-                tools = openai_tool_registry.get_tools()
+                # Use custom tool registry if available, otherwise fall back to global
+                registry = getattr(self, 'custom_tool_registry', openai_tool_registry)
+                tools = registry.get_tools()
                 
+                # Log which tools are available
+                tool_names = [tool['function']['name'] for tool in tools]
+                #logger.info(f"Available tools for this agent: {tool_names}")
+                
+                #print("tools", tools)
                 # Call LLM with function calling
                 response = self.llm_client.provider.call_with_messages_and_functions(
-                    messages=messages,
+                    messages=current_messages,
                     tools=tools
                 )
                 
@@ -254,6 +278,7 @@ Respond naturally to the user, incorporating tool results into your responses wh
                     message = response
                     
                 logger.info(f"LLM response: {message}")
+                #print("LLM response", message)
                 
                 # Check if we have tool calls (handle both object and dict formats)
                 has_tool_calls = False
@@ -266,13 +291,13 @@ Respond naturally to the user, incorporating tool results into your responses wh
                     if hasattr(message, 'content') and message.content:
                         console.print(Panel(
                             Markdown(message.content),
-                            title="[bold blue]Get[/bold blue]",
+                            title="[bold blue]Get it![/bold blue]",
                             border_style="blue",
                             expand=False
                         ))
                         console.print(" ")
                     # Process tool calls and continue to next iteration
-                    self._process_tool_calls(message, messages)
+                    self._process_tool_calls(message, current_messages)
                     continue
                 
                 # No tool calls - this is the final response
@@ -285,13 +310,22 @@ Respond naturally to the user, incorporating tool results into your responses wh
                 if content:
                     final_response = content
                     logger.info(f"Final response: {final_response}")
-                    # Display final response
-                    console.print(Panel(
-                        Markdown(final_response),
-                        title="[bold green]Response[/bold green]",
-                        border_style="green",
-                        expand=False
-                    ))
+                    
+                    # Add final assistant response to self.messages
+                    assistant_response_message = {
+                        "role": "assistant",
+                        "content": content
+                    }
+                    self.messages.append(assistant_response_message)
+                    
+                    # Only show the result panel if this is not a subagent
+                    if not getattr(self, 'subagent', False):
+                        console.print(Panel(
+                            Markdown(final_response),
+                            title="[bold green]Result[/bold green]",
+                            border_style="green",
+                            expand=False
+                        ))
                     
                     # Store in memory
                     if self.memory_enabled and self.session_id:
@@ -325,7 +359,7 @@ Respond naturally to the user, incorporating tool results into your responses wh
         current_date = datetime.now().strftime("%Y-%m-%d")
         self.system_info["current_date"] = f"Today's date: {current_date}"
     
-    def _build_messages(self, query: str) -> List[Dict[str, Any]]:
+    def _build_system_messages(self) -> List[Dict[str, Any]]:
         """Build message list for LLM"""
         messages = []
         
@@ -339,16 +373,21 @@ Respond naturally to the user, incorporating tool results into your responses wh
         # Add memory context if enabled
         if self.memory_enabled and self.session_id:
             try:
-                memory_messages = self.session_manager.get_messages_for_llm(
+                memory_messages = self.session_manager.get_messages_for_llm_ctx(
                     self.user_id, model=self.model
                 )
-                messages.extend(memory_messages)
+                # Ensure memory_messages is a list before extending
+                if isinstance(memory_messages, dict):
+                    messages.append(memory_messages)
+                elif isinstance(memory_messages, list):
+                    messages.extend(memory_messages)
+                else:
+                    logger.warning(f"Unexpected memory_messages type: {type(memory_messages)}")
+                logger.debug(f"Added {len(memory_messages) if isinstance(memory_messages, list) else 1} memory messages")
             except Exception as e:
                 logger.error(f"Error loading memory: {e}")
         
-        # User query
-        messages.append({"role": "user", "content": query})
-        
+        # User query 
         return messages
     
     def _process_tool_calls(self, message, messages):
@@ -384,6 +423,13 @@ Respond naturally to the user, incorporating tool results into your responses wh
             try:
                 tool_args = json.loads(arguments)
                 
+                # Get the appropriate tool registry (custom or global)
+                registry = getattr(self, 'custom_tool_registry', openai_tool_registry)
+                
+                # Check if tool exists in the registry
+                if not registry.has_tool(tool_name):
+                    raise ValueError(f"Tool '{tool_name}' not found in registry")
+                
                 # Handle compound tool names (e.g., "files.write_file:7" -> "files")
                 original_tool_name = tool_name
                 if '.' in tool_name:
@@ -409,15 +455,18 @@ Respond naturally to the user, incorporating tool results into your responses wh
                         # For other compound tools, just use the base name
                         tool_name = base_tool_name
                 
-                # Display tool usage
-                display_text = self._format_tool_call_display(tool_name, tool_args)
+                # Execute the tool using the appropriate registry
+                result = registry.execute_tool(tool_name, tool_args)
+                logger.debug(f"Executed tool {tool_name} with args: {tool_args}")
+                
+                # Format the result for display
+                display_result = self._format_tool_call_display(original_tool_name, tool_args)
                 console.print(f"[bold blue]• Using Tool: {original_tool_name}[/bold blue]")
-                console.print(display_text)
+                console.print(display_result)
                 console.print(" ")
-                # Execute the function
-                result = openai_tool_registry.execute_tool(tool_name, tool_args)
- 
-                # Store the result
+              
+                
+                # Add tool call result to messages
                 tool_call_results.append({
                     "tool_call_id": tool_id,
                     "role": "tool",
@@ -471,9 +520,11 @@ Respond naturally to the user, incorporating tool results into your responses wh
             ]
         }
         messages.append(assistant_message)
+        self.messages.append(assistant_message)  # Add to session messages
         
         # Add all tool call results to messages
         messages.extend(tool_call_results)
+        self.messages.extend(tool_call_results)  # Add to session messages
         
         # Store in memory if enabled
         if self.memory_enabled and self.session_id:

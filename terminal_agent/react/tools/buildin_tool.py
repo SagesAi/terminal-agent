@@ -68,7 +68,7 @@ Important notes:
 git commit -m "$(cat <<'EOF'
    Commit message here.
 
-   🤖 Generated with [STerminal Agent](https://github.com/sagesai/terminal-agent)
+   🤖 Generated with [Terminal Agent](https://github.com/sagesai/terminal-agent)
    EOF
    )"
 </example>

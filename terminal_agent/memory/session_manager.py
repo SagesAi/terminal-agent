@@ -256,7 +256,7 @@ class SessionManager:
             logger.error(f"Error getting LLM messages: {e}")
             return []
 
-    def get_messages_for_llm_dropped(self, user_id: str) -> List[Dict]:
+    def get_messages_for_llm_ctx(self, user_id: str, model: str = "gpt-4") -> List[Dict[str, Any]]:
         """Get messages for LLM context
         
         This method will:
@@ -266,31 +266,35 @@ class SessionManager:
         
         Args:
             user_id: User ID
+            model: LLM model name
             
         Returns:
-            Message list for LLM context
+            List of message dictionaries for LLM context
+            
+        Raises:
+            Exception: If there's an error getting messages from context manager
         """
         try:
             # Get or create session
             session_id = self.get_or_create_session(user_id)
             
             # Check if summary generation is needed
-            self.context_manager.check_and_summarize_if_needed(session_id)
+            messages = self.context_manager.check_and_summarize_if_needed(session_id)
             
             # Get context messages
-            messages = self.context_manager.get_messages_for_context(session_id)
+            #messages = self.context_manager.get_messages_for_context(session_id)
             
             # Convert to format required by LLM
-            llm_messages = []
-            for msg in messages:
-                llm_message = {
-                    "role": msg["role"],
-                    "content": str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
-                }
-                llm_messages.append(llm_message)
+            #llm_messages = []
+            #for msg in messages:
+            #    llm_message = {
+            #        "role": msg["role"],
+            #        "content": str(msg["content"]) if not isinstance(msg["content"], str) else msg["content"]
+            #    }
+            #    llm_messages.append(llm_message)
                 
-            logger.debug(f"Retrieved {len(llm_messages)} LLM context messages for user {user_id}")
-            return llm_messages
+            #logger.debug(f"Retrieved {len(messages)} LLM context messages for user {user_id}")
+            return messages
             
         except Exception as e:
             logger.error(f"Error getting LLM messages: {e}")

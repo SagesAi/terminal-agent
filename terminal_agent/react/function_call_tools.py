@@ -49,9 +49,20 @@ class OpenAIToolRegistry:
         """Get all registered tools in OpenAI format."""
         return self._tools.copy()
     
+    def has_tool(self, name: str) -> bool:
+        """Check if a tool with the given name exists in the registry.
+        
+        Args:
+            name: The name of the tool to check
+            
+        Returns:
+            bool: True if the tool exists, False otherwise
+        """
+        return name in self._handlers
+        
     def execute_tool(self, name: str, arguments: Dict[str, Any]) -> str:
         """Execute a tool with given arguments."""
-        if name not in self._handlers:
+        if not self.has_tool(name):
             raise ValueError(f"Unknown tool: {name}")
         
         handler = self._handlers[name]

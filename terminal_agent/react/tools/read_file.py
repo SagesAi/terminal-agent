@@ -169,7 +169,7 @@ TOOL_SCHEMA = {
     "type": "function",
     "function": {
         "name": "read_file",
-        "description": "Read content from a file with optional offset and limit",
+        "description": READ_FILE_DESCRIPTION,
         "parameters": {
             "type": "object",
             "properties": {

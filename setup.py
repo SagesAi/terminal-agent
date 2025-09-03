@@ -45,7 +45,7 @@ extras_require = {}
 
 setup(
     name="terminal-agent",
-    version="0.3.0",
+    version="0.3.1",
     author="Terminal Agent Team",
     author_email="zhyblife99@gmail.com",
     description="An intelligent terminal assistant for DevOps and SRE",

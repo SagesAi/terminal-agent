@@ -22,6 +22,7 @@ from rich.panel import Panel
 from rich import box
 
 from terminal_agent.memory.memory_database import MemoryDatabase
+from terminal_agent.react.history_compression_agent import HistoryCompressionAgent
 
 # Get logger
 logger = logging.getLogger(__name__)
@@ -30,7 +31,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 # Token management constants
-DEFAULT_TOKEN_THRESHOLD = 4096  # Default token threshold
+DEFAULT_TOKEN_THRESHOLD = 8192  # Default token threshold
 SUMMARY_TARGET_TOKENS = 1000    # Summary target token count
 RESERVE_TOKENS = 500            # Reserved tokens for new messages
 DEFAULT_USER_MESSAGE_THRESHOLD = 2048  # Default threshold for user message compression
@@ -52,6 +53,7 @@ class ContextManager:
         self.db = db
         self.llm_client = llm_client
         self.token_threshold = token_threshold
+        self.compression_agent = HistoryCompressionAgent(llm_client, system_info={"name": "CompressAgent"})
 
     def get_token_count(self, messages: List[Dict], model: str = None) -> int:
         """Estimate token count for a message list
@@ -80,7 +82,7 @@ class ContextManager:
                         elif not isinstance(content, str):
                             processed_msg["content"] = str(content)
                         processed_messages.append(processed_msg)
-                    
+
                     return litellm.token_counter(model=model, messages=processed_messages)
                 except (ImportError, Exception) as e:
                     logger.warning(f"Cannot use litellm for token counting: {e}, falling back to heuristic method")
@@ -137,14 +139,14 @@ class ContextManager:
                       token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
                       max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
         """Compress messages using while loop until token count is within limit
-        
+
         Args:
             messages: Message list
             model: LLM model
             max_tokens: Maximum token count
             token_threshold: Token threshold for compression
             max_iterations: Maximum iterations for recursive compression
-            
+
         Returns:
             Compressed message list
         """
@@ -158,7 +160,7 @@ class ContextManager:
         current_threshold = token_threshold
         current_messages = messages.copy()
         current_token_count = initial_token_count
-        
+
         # 设置初始进度为10%，确保用户能看到进度条在移动
         with Progress(
             "[cyan]{task.description}",
@@ -174,7 +176,7 @@ class ContextManager:
             task = progress.add_task("[bold blue]Optimizing context", total=100, status="")
             # 立即更新进度到10%，确保用户看到进度条在移动
             progress.update(task, completed=10, status="[cyan]Starting...[/cyan]")
-            
+
             # core loop: continue trying compression as long as token count exceeds limit
             while current_token_count > max_tokens:
                 # check if threshold has reached minimum
@@ -185,7 +187,7 @@ class ContextManager:
                         "stopping compression"
                     )
                     return current_messages
-                
+
                 # important: always start from original messages to apply new threshold
                 # compress user messages
                 user_compressed = self._compress_user_messages(
@@ -193,93 +195,43 @@ class ContextManager:
                 )
                 user_token_count = self.get_token_count(user_compressed, model)
                 logger.debug(f"After user compression: {initial_token_count} -> {user_token_count}")
-                
+
                 # Update progress - ensure at least 20% progress
                 progress_percent = max(20, min(100, int((1 - (user_token_count / initial_token_count)) * 50)))
                 progress.update(task, completed=progress_percent, status="[cyan]Optimizing...[/cyan]")
-                
+
                 # compress assistant messages
                 assistant_compressed = self._compress_assistant_messages(
                     user_compressed, model, max_tokens, current_threshold
                 )
                 assistant_token_count = self.get_token_count(assistant_compressed, model)
                 logger.debug(f"After assistant compression: {user_token_count} -> {assistant_token_count}")
-                
+
                 # Update progress - ensure at least 50% progress
                 progress_percent = max(50, min(100, int((1 - (assistant_token_count / initial_token_count)) * 100)))
                 progress.update(task, completed=progress_percent, status="[magenta]Optimizing...[/magenta]")
-                
+
                 # update state
                 current_messages = assistant_compressed
                 current_token_count = assistant_token_count
-                
+
                 # Check if compression was successful
                 if current_token_count <= max_tokens:
                     progress.update(task, completed=100, status="[green]Complete[/green]")
                     # Don't show compression completion panel
                     logger.info(f"Compression successful: {current_token_count} tokens ≤ {max_tokens}")
                     return current_messages
-                
+
                 # lower threshold for next iteration
                 logger.debug(
                     f"Compression insufficient: {current_token_count} > {max_tokens}, "
                     f"lowering threshold to {current_threshold//2}"
                 )
                 current_threshold = current_threshold // 2
-        
+
         # theoretically will not reach here
         return current_messages
 
-    def _compress_messages_dropped(self, messages: List[Dict], model: str, max_tokens: int = 41000,
-                          token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD,
-                          max_iterations: int = DEFAULT_MAX_ITERATIONS) -> List[Dict]:
-        """Compress messages, recursively lower threshold if still over max_tokens
-
-        Args:
-            messages: Message list
-            model: LLM model
-            max_tokens: Maximum token count
-            token_threshold: Token threshold for compression
-            max_iterations: Maximum iterations for recursive compression
-
-        Returns:
-            Compressed message list
-        """
-
-        
-        if max_iterations <= 0 or token_threshold < MIN_TOKEN_THRESHOLD:
-            if max_iterations <= 0:
-                logger.warning("Compress messages: reached max iterations, returning current messages")
-            else:
-                logger.warning(f"Compress messages: token threshold {token_threshold} below minimum {MIN_TOKEN_THRESHOLD}, stopping compression")
-            return messages
-
-        result = messages  # Create copy to avoid modifying original messages
-
-        # Get token count before compression
-        uncompressed_total_token_count = self.get_token_count(messages, model)
-
-        # Compress by message type
-        result_after_user = self._compress_user_messages(result, model, max_tokens, token_threshold)
-        token_count_after_user = self.get_token_count(result_after_user, model)
-        logger.debug(f"After user message compression: {uncompressed_total_token_count} -> {token_count_after_user}")
-
-        result_after_assistant = self._compress_assistant_messages(result_after_user, model, max_tokens, token_threshold)
-        token_count_after_assistant = self.get_token_count(result_after_assistant, model)
-        logger.debug(f"After assistant message compression: {token_count_after_user} -> {token_count_after_assistant}")
-
-        result = result_after_assistant
-        compressed_token_count = token_count_after_assistant
-
-        logger.info(f"Compressed messages: {uncompressed_total_token_count} -> {compressed_token_count}")
-
-        # If still over max_tokens, recursively compress with lower threshold
-        if compressed_token_count > max_tokens:
-            # If no compression effect, directly lower the threshold and try again
-            logger.warning(f"No compression effect, trying with lower threshold: {compressed_token_count} > {max_tokens}")
-            result = self._compress_messages(messages, model, max_tokens, int(token_threshold / 2), max_iterations - 1)
-
-        return result
 
     def _compress_user_messages(self, messages: List[Dict], model: str, max_tokens: int,
                               token_threshold: int = DEFAULT_USER_MESSAGE_THRESHOLD) -> List[Dict]:
@@ -375,65 +327,65 @@ class ContextManager:
 
         return result
 
-    def compress_react_messages(self, messages: List[Dict], model: str = "gpt-4", 
+    def compress_react_messages(self, messages: List[Dict], model: str = "gpt-4",
                           max_tokens_threshold: Optional[int] = None,
                           recent_message_count: int = 5) -> List[Dict]:
         """
         Compress message history during React execution process, replacing older messages with summaries
-        
+
         Args:
             messages: List of message history
             model: LLM model name
             max_tokens_threshold: Token threshold, uses default threshold if None
             recent_message_count: Number of recent messages to preserve
-            
+
         Returns:
             Compressed message list
         """
         # If no threshold specified, use default threshold
         if max_tokens_threshold is None:
             max_tokens_threshold = self.token_threshold
-            
+
         # Estimate current message token count
         current_tokens = self.get_token_count(messages, model)
-        
+
         # If under threshold, return original messages
         if current_tokens <= max_tokens_threshold:
             return messages
-            
+
         logger.info(f"Message history exceeds token threshold ({current_tokens} > {max_tokens_threshold}). Compressing...")
-        
+
         # Preserve system messages
         system_messages = [m for m in messages if m.get("role") == "system"]
-        
+
         # Separate user and assistant messages
         non_system_messages = [m for m in messages if m.get("role") != "system"]
-        
+
         # If too few messages, no need to compress
         if len(non_system_messages) <= recent_message_count:
             return messages
-        
+
         # Split messages: preserve recent messages, compress older ones
         older_messages, recent_messages = non_system_messages[:-recent_message_count], non_system_messages[-recent_message_count:]
-        
+
         # If no messages to compress, return original messages
         if not older_messages:
             return messages
-        
+
         # Build summary prompt
         summary_prompt = (
             "Provide a detailed but concise summary of our conversation above. "
             "Focus on information that would be helpful for continuing the conversation, "
             "including what we did, what we're doing, which files we're working on, and what we're going to do next."
         )
-        
+
         # Convert messages to be compressed into text
         messages_text = ""
         for msg in older_messages:
             role = msg.get("role", "")
             content = msg.get("content", "")
             messages_text += f"{role.upper()}: {content}\n\n"
-        
+
         # Use LLM to generate summary
         if self.llm_client:
             try:
@@ -441,24 +393,24 @@ class ContextManager:
                 summary_response = self.llm_client.call_with_messages([
                     {"role": "user", "content": messages_text + "\n" + summary_prompt}
                 ], show_progress=False)
-                
+
                 # Create new message list with summary
                 compressed_messages = system_messages.copy()
-                
+
                 # Add summary as assistant message
                 summary_message = {
                     "role": "assistant",
                     "content": f"Previous conversation summary: {summary_response}"
                 }
                 compressed_messages.append(summary_message)
-                
+
                 # Add recent messages
                 compressed_messages.extend(recent_messages)
-                
+
                 # Calculate token count after compression
                 compressed_tokens = self.get_token_count(compressed_messages, model)
                 logger.info(f"Compressed {len(messages)} messages to {len(compressed_messages)} messages ({current_tokens} -> {compressed_tokens} tokens)")
-                
+
                 return compressed_messages
             except Exception as e:
                 logger.error(f"Failed to generate summary: {e}")
@@ -467,7 +419,7 @@ class ContextManager:
         else:
             logger.warning("No LLM client available for summary generation, returning original messages")
             return messages
-    
+
     def _compress_message(self, msg_content: Union[str, dict], message_id: Optional[str] = None,
                         max_tokens: int = 3000, chars_per_token: float = 3.0) -> Union[str, dict]:
         """Compress single message content
@@ -531,7 +483,7 @@ class ContextManager:
             else:
                 return str_content
 
-    def generate_summary(self, messages: List[Dict]) -> Optional[Dict]:
+    def generate_summary(self, messages: List[Dict]) -> List[Dict[str, Any]]:
         """Generate conversation summary
 
         Args:
@@ -541,67 +493,13 @@ class ContextManager:
             Summary message dictionary, None if generation fails
         """
         if not self.llm_client or not messages:
-            return None
+            return []
 
-        # Build summary prompt
-        system_message = {
-            "role": "system",
-            "content": """You are a professional summary assistant. Your task is to create a concise but comprehensive summary of the conversation history.
 
-The summary should:
-1. Retain all key information, including decisions, conclusions, and important context
-2. Include tools used and their results
-3. Maintain chronological order of events
-4. Present as a list of key points with section headings
-5. Only include factual information from the conversation (don't add new information)
-6. Be concise but detailed enough to continue the conversation
+        compressed = self.compression_agent.compress_history(messages)
 
-Very important: This summary will replace earlier parts of the conversation in the LLM context window, so ensure it contains all key information and the latest state of the conversation - this is how we'll know how to continue the conversation."""
-        }
+        return compressed
 
-        # Prepare message history
-        message_history = ""
-        for msg in messages:
-            role = msg.get("role", "unknown")
-            content = msg.get("content", "")
-            if isinstance(content, dict):
-                content = json.dumps(content)
-            message_history += f"{role}: {content}\n\n"
-
-        user_message = {
-            "role": "user",
-            "content": f"""Please generate a summary for the following conversation:
-
-==================== CONVERSATION HISTORY ====================
-{message_history}
-==================== END OF CONVERSATION HISTORY ====================
-
-Please provide the summary now."""
-        }
-
-        # Call LLM to generate summary
-        try:
-            response = self.llm_client.call_with_messages([system_message, user_message])
-
-            # Format summary
-            formatted_summary = f"""
-======== CONVERSATION HISTORY SUMMARY ========
-
-{response}
-
-======== END OF SUMMARY ========
-
-Above is a summary of the conversation history. The conversation continues below.
-"""
-
-            return {
-                "role": "system",
-                "content": formatted_summary,
-                "type": "summary"
-            }
-        except Exception as e:
-            logger.error(f"Error generating summary: {e}")
-            return None
 
     def get_full_message(self, message_id: str) -> Optional[Dict]:
         """Get the full content of a message by its ID
@@ -646,6 +544,171 @@ Above is a summary of the conversation history. The conversation continues below
             logger.error(f"Error getting full message: {e}")
             return None
 
+    def get_messages_for_summary(self, session_id: str, model: str = "gpt-4") -> List[Dict]:
+        """Get messages for summary
+
+        Args:
+            session_id: Session ID (required)
+            model: LLM model name for token counting and compression (default: "gpt-4")
+
+        Returns:
+            List[Dict]: List of message dictionaries formatted for LLM processing
+
+        Raises:
+            ValueError: If session_id is invalid
+            sqlite3.Error: If there's a database error
+            Exception: For any other unexpected errors
+        """
+        if not session_id or not isinstance(session_id, str):
+            logger.error("Invalid session_id: must be a non-empty string")
+            raise ValueError("session_id must be a non-empty string")
+
+        if not hasattr(self, 'db') or not hasattr(self.db, 'conn'):
+            logger.error("Database connection not initialized")
+            raise RuntimeError("Database connection not available")
+
+        conn = self.db.conn
+        messages = []
+        cursor = None
+
+        try:
+            if conn is None:
+                logger.error("Database connection is None")
+                raise RuntimeError("Database connection is not available")
+
+            # Find the latest summary message
+            try:
+                cursor = conn.execute('''
+                SELECT id, created_at FROM messages
+                WHERE session_id = ? AND type = 'summary' AND is_llm_message = 1
+                ORDER BY created_at DESC LIMIT 1
+                ''', (session_id,))
+                summary_row = cursor.fetchone()
+                cursor.close()
+
+                if summary_row:
+                    # Found summary, get summary and all subsequent messages
+                    latest_summary_id = summary_row['id']
+                    latest_summary_time = summary_row['created_at']
+                    logger.debug(f"Found latest summary: {latest_summary_id}, time: {latest_summary_time}")
+
+                    cursor = conn.execute('''
+                    SELECT id, role, content, type, created_at, metadata
+                    FROM messages
+                    WHERE session_id = ? AND is_llm_message = 1
+                    AND (id = ? OR created_at > ?)
+                    ORDER BY created_at ASC
+                    ''', (session_id, latest_summary_id, latest_summary_time))
+                else:
+                    # No summary, get the most recent messages
+                    logger.debug(f"No summary found, getting all messages for session {session_id}")
+                    cursor = conn.execute('''
+                    SELECT id, role, content, type, created_at, metadata
+                    FROM messages
+                    WHERE session_id = ? AND is_llm_message = 1
+                    ORDER BY created_at ASC
+                    ''', (session_id,))
+            except sqlite3.Error as e:
+                logger.error(f"Database error: {str(e)}")
+                raise
+
+            # Process query results with error handling
+            rows = cursor.fetchall()
+            if not rows:
+                logger.info(f"No messages found for session {session_id}")
+                return []
+
+            for row in rows:
+                try:
+                    content = row['content']
+                    metadata = row['metadata']
+
+                    # Safely parse JSON content
+                    if content and isinstance(content, str):
+                        try:
+                            content = json.loads(content)
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.debug(f"Could not parse message content as JSON: {str(e)}")
+
+                    # Safely parse metadata
+                    parsed_metadata = None
+                    if metadata and isinstance(metadata, str):
+                        try:
+                            parsed_metadata = json.loads(metadata)
+                        except (json.JSONDecodeError, TypeError) as e:
+                            logger.debug(f"Could not parse metadata as JSON: {str(e)}")
+                            parsed_metadata = metadata
+
+                    message = {
+                        "id": row['id'],
+                        "role": row['role'],
+                        "content": content,
+                        "type": row['type'],
+                        "created_at": row['created_at'],
+                        "metadata": parsed_metadata
+                    }
+                    messages.append(message)
+
+                except Exception as e:
+                    logger.error(f"Error processing message row: {str(e)}")
+                    continue
+
+            # Convert to LLM message format with error handling
+            llm_messages = []
+            for msg in messages:
+                try:
+                    # Handle tool messages with OpenAI format
+                    if msg.get("role") == "tool" and msg.get("metadata") and msg["metadata"].get("tool_call_id"):
+                        llm_message = {
+                            "role": "tool",
+                            "tool_call_id": msg["metadata"]["tool_call_id"],
+                            "content": str(msg.get("content", "")) if not isinstance(msg.get("content"), str) else msg["content"]
+                        }
+                    # Handle assistant messages with tool calls
+                    elif msg.get("role") == "assistant" and msg.get("metadata") and msg["metadata"].get("tool_calls"):
+                        llm_message = {
+                            "role": "assistant",
+                            "content": str(msg.get("content", "")) if not isinstance(msg.get("content"), str) else msg["content"],
+                            "tool_calls": msg["metadata"].get("tool_calls", [])
+                        }
+                    # Handle regular messages
+                    else:
+                        content = msg.get("content", "")
+                        if isinstance(content, dict) and content.get("_truncated_content"):
+                            content = content.get("_message", "[Content was truncated due to length]")
+                        elif not isinstance(content, str):
+                            content = str(content)
+
+                        llm_message = {
+                            "role": msg.get("role", "user"),
+                            "content": content
+                        }
+
+                    llm_messages.append(llm_message)
+
+                except Exception as e:
+                    logger.error(f"Error formatting message for LLM: {str(e)}")
+                    continue
+
+            return llm_messages
+
+        except sqlite3.Error as e:
+            logger.error(f"Database error in get_messages_for_summary: {str(e)}")
+            raise
+
+        except Exception as e:
+            logger.error(f"Unexpected error in get_messages_for_summary: {str(e)}")
+            raise
+
+        finally:
+            if cursor:
+                try:
+                    cursor.close()
+                except Exception as e:
+                    logger.error(f"Error closing cursor: {str(e)}")
+
+
+
     def get_messages_for_context(self, session_id: str, model: str = "gpt-4", max_messages: int = 50) -> List[Dict]:
         """Get messages for current context
 
@@ -682,49 +745,40 @@ Above is a summary of the conversation history. The conversation continues below
 
                 # Get the summary and the most recent messages after it
                 cursor = conn.execute('''
-                WITH recent_messages AS (
-                    SELECT id, role, content, type, created_at, metadata
-                    FROM messages
-                    WHERE session_id = ? AND is_llm_message = 1
-                    AND (id = ? OR created_at > ?)
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                )
-                SELECT * FROM recent_messages
+                SELECT id, role, content, type, created_at, metadata
+                FROM messages
+                WHERE session_id = ? AND is_llm_message = 1
+                AND (id = ? OR created_at > ?)
                 ORDER BY created_at ASC
-                ''', (session_id, latest_summary_id, latest_summary_time, max_messages))
+                ''', (session_id, latest_summary_id, latest_summary_time))
             else:
                 # No summary, get the most recent messages
-                logger.debug(f"No summary found, getting most recent {max_messages} messages for session {session_id}")
+                logger.debug(f"No summary found, getting all messages for session {session_id}")
                 cursor = conn.execute('''
-                WITH recent_messages AS (
-                    SELECT id, role, content, type, created_at, metadata FROM messages
-                    WHERE session_id = ? AND is_llm_message = 1
-                    ORDER BY created_at DESC
-                    LIMIT ?
-                )
-                SELECT * FROM recent_messages
+                SELECT id, role, content, type, created_at, metadata
+                FROM messages
+                WHERE session_id = ? AND is_llm_message = 1
                 ORDER BY created_at ASC
-                ''', (session_id, max_messages))
+                ''', (session_id,))
 
             # Process query results (already in chronological order)
             for row in cursor:
                 content = row['content']
                 metadata = row['metadata']
-                
+
                 # Try to parse JSON content
                 try:
                     content = json.loads(content)
                 except (json.JSONDecodeError, TypeError):
                     pass
-                    
+
                 # Try to parse JSON metadata
                 if metadata:
                     try:
                         metadata = json.loads(metadata)
                     except (json.JSONDecodeError, TypeError):
                         pass
-                
+
                 message = {
                     "id": row['id'],
                     "role": row['role'],
@@ -764,7 +818,7 @@ Above is a summary of the conversation history. The conversation continues below
             logger.error(f"Error getting context messages: {e}")
             return []
 
-    def check_and_summarize_if_needed(self, session_id: str, model: str = "gpt-4") -> Optional[Dict]:
+    def check_and_summarize_if_needed(self, session_id: str, model: str = "gpt-4") -> List[Dict[str, Any]]:
         """Check if summary generation is needed, and generate and store if needed
 
         Args:
@@ -772,54 +826,63 @@ Above is a summary of the conversation history. The conversation continues below
             model: LLM model name for token counting
 
         Returns:
-            Summary message if generated, None otherwise
+            List of message dictionaries. If a summary was generated, returns a list
+            containing the summary message. If no summary was needed, returns the
+            original list of messages. Returns an empty list on error.
         """
         try:
             # Get all current session messages
-            messages = self.get_messages_for_context(session_id, model)
+            messages = self.get_messages_for_summary(session_id, model)
 
             # Check if token count exceeds threshold
             token_count = self.get_token_count(messages, model)
 
             if token_count < self.token_threshold:
                 logger.debug(f"Session {session_id} token count ({token_count}) below threshold ({self.token_threshold}), no summary needed")
-                return None
+                return messages
 
             console.print(f"[bold yellow]Generating summary...[/bold yellow]")
             logger.info(f"Session {session_id} token count ({token_count}) exceeds threshold ({self.token_threshold}), generating summary")
 
             # If too few messages, don't generate summary
-            if len(messages) < 3:
-                logger.info(f"Session {session_id} has too few messages ({len(messages)}), not generating summary")
-                return None
+            #if len(messages) < 3:
+            #    logger.info(f"Session {session_id} has too few messages ({len(messages)}), not generating summary")
+            #    return messages
 
             # Generate summary
             summary = self.generate_summary(messages)
             if not summary:
-                return None
+                logger.warning("Failed to generate summary, returning original messages")
+                return messages
 
-            # Store summary in database
-            conn = self.db.conn
-            summary_id = str(uuid.uuid4())
-            now = datetime.now().isoformat()
+            try:
+                # Store summary in database
+                conn = self.db.conn
+                summary_id = str(uuid.uuid4())
+                now = datetime.now().isoformat()
 
-            conn.execute('''
-            INSERT INTO messages (id, session_id, role, content, type, created_at, is_llm_message)
-            VALUES (?, ?, ?, ?, ?, ?, 1)
-            ''', (
-                summary_id,
-                session_id,
-                summary["role"],
-                json.dumps(summary["content"]),
-                summary["type"],
-                now
-            ))
+                conn.execute('''
+                INSERT INTO messages (id, session_id, role, content, type, created_at, is_llm_message)
+                VALUES (?, ?, ?, ?, ?, ?, 1)
+                ''', (
+                    summary_id,
+                    session_id,
+                    summary["role"],
+                    json.dumps(summary["content"] if isinstance(summary["content"], str) else summary["content"]),
+                    "summary",
+                    now
+                ))
+                conn.commit()
 
-            conn.commit()
-
-            logger.info(f"Generated and stored summary for session {session_id}")
-            return summary
+                logger.info(f"Generated and stored summary for session {session_id}")
+                # Return the summary as a single-item list to maintain consistent return type
+                return [summary]
+                
+            except Exception as db_error:
+                logger.error(f"Error storing summary in database: {db_error}")
+                # Return original messages if we couldn't store the summary
+                return messages
 
         except Exception as e:
             logger.error(f"Error checking and generating summary: {e}")
-            return None
+            return []
