@@ -100,8 +100,9 @@ def web_page_tool(query: str) -> str:
             return f"Error: Invalid URL format: {url}. URL must start with http:// or https://"
         
         # Crawl the web page
+        import asyncio
         crawler = Crawler()
-        article = crawler.crawl(url)
+        article = asyncio.run(crawler.crawl(url))
         
         # Return the content in the specified format
         if output_format.lower() == "markdown":

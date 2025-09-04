@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 console = Console()
 
 # Token management constants
-DEFAULT_TOKEN_THRESHOLD = 8192  # Default token threshold
+DEFAULT_TOKEN_THRESHOLD = 16384  # Increased default token threshold for larger context windows
 SUMMARY_TARGET_TOKENS = 1000    # Summary target token count
 RESERVE_TOKENS = 500            # Reserved tokens for new messages
 DEFAULT_USER_MESSAGE_THRESHOLD = 2048  # Default threshold for user message compression

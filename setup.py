@@ -27,6 +27,7 @@ requirements = [
     "requests>=2.28.0",
     "markdownify>=0.11.6",
     "readabilipy>=0.2.0",
+    "crawl4ai>=0.1.0",  # 现代网页爬取框架
     # 其他 LLM 提供商支持
     "google-generativeai>=0.3.0",  # Gemini 支持
     "anthropic>=0.5.0",  # Claude 支持
